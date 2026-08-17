@@ -12,14 +12,25 @@ import { AsyncPipe } from '@angular/common';
       @for (toast of toastService.toasts$ | async; track toast.id) {
         <div class="toast toast--{{ toast.type }}" role="alert">
           <span>{{ toast.message }}</span>
-          <button
-            type="button"
-            class="toast__close"
-            (click)="toastService.dismiss(toast.id)"
-            aria-label="Dismiss notification"
-          >
-            ×
-          </button>
+          <div class="toast__actions">
+            @if (toast.actionLabel && toast.action) {
+              <button
+                type="button"
+                class="toast__undo"
+                (click)="toastService.runAction(toast)"
+              >
+                {{ toast.actionLabel }}
+              </button>
+            }
+            <button
+              type="button"
+              class="toast__close"
+              (click)="toastService.dismiss(toast.id)"
+              aria-label="Dismiss notification"
+            >
+              ×
+            </button>
+          </div>
         </div>
       }
     </div>
@@ -46,15 +57,32 @@ import { AsyncPipe } from '@angular/common';
         box-shadow: var(--shadow-md);
         background: var(--surface);
         border: 1px solid var(--border);
+        color: var(--text-primary);
         animation: slideIn 0.2s ease;
       }
       .toast--success {
-        border-color: #86efac;
-        background: #f0fdf4;
+        border-color: color-mix(in srgb, #22c55e 40%, var(--border));
+        background: color-mix(in srgb, #22c55e 8%, var(--surface));
       }
       .toast--error {
-        border-color: #fca5a5;
-        background: #fef2f2;
+        border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+        background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+      }
+      .toast__actions {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        flex-shrink: 0;
+      }
+      .toast__undo {
+        border: 1px solid var(--primary);
+        background: var(--primary-soft);
+        color: var(--primary);
+        border-radius: 8px;
+        padding: 0.25rem 0.625rem;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        cursor: pointer;
       }
       .toast__close {
         background: none;

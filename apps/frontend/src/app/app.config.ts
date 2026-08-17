@@ -13,6 +13,8 @@ import { firstValueFrom } from 'rxjs';
 import { routes } from './app.routes';
 import { environment } from '../environments/environment';
 import { AuthService } from './core/services/auth.service';
+import { ThemeService } from './core/services/theme.service';
+import { PreferencesService } from './core/services/preferences.service';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -34,6 +36,8 @@ export const appConfig: ApplicationConfig = {
       };
     }),
     provideAppInitializer(() => {
+      inject(ThemeService).init();
+      inject(PreferencesService).init();
       const authService = inject(AuthService);
       return firstValueFrom(authService.loadCurrentUser());
     }),

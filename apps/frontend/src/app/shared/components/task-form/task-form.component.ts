@@ -84,7 +84,8 @@ import {
         border-radius: 10px;
         padding: 0.75rem 0.875rem;
         font: inherit;
-        background: var(--surface);
+        background: var(--input-bg);
+        color: var(--text-primary);
       }
       input:focus, textarea:focus, select:focus {
         outline: 2px solid var(--primary-soft);

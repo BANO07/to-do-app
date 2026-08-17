@@ -2,11 +2,12 @@ import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
-import { Subject, switchMap, takeUntil, combineLatest, startWith } from 'rxjs';
+import { Subject, switchMap, takeUntil, combineLatest, startWith, forkJoin } from 'rxjs';
 import { TaskService } from '../../../core/services/task.service';
 import { CategoryService } from '../../../core/services/category.service';
 import { TaskFilterService } from '../../../core/services/task-filter.service';
 import { ToastService } from '../../../core/services/toast.service';
+import { UiShortcutService } from '../../../core/services/ui-shortcut.service';
 import {
   Category,
   CreateTaskInput,
@@ -21,6 +22,8 @@ import { TaskFormComponent } from '../../../shared/components/task-form/task-for
 import { TaskSkeletonComponent } from '../../../shared/components/task-skeleton/task-skeleton.component';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
+import { QuickAddComponent } from '../../../shared/components/quick-add/quick-add.component';
+import { snapshotFromTask, snapshotToCreateInput, TaskSnapshot } from '../../../core/utils/task-snapshot';
 
 @Component({
   selector: 'app-tasks-page',
@@ -33,6 +36,7 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
     TaskSkeletonComponent,
     EmptyStateComponent,
     ConfirmDialogComponent,
+    QuickAddComponent,
   ],
   template: `
     <section class="tasks-page">
@@ -41,8 +45,12 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
           <p class="eyebrow">Tasks</p>
           <h1>{{ pageTitle }}</h1>
         </div>
-        <button type="button" class="btn btn--primary" (click)="openCreateForm()">+ Add Task</button>
+        <button type="button" class="btn btn--primary" (click)="openCreateForm()">
+          + Add Task
+        </button>
       </header>
+
+      <app-quick-add [categories]="categories" (created)="reload()" />
 
       <div class="filters">
         <select [(ngModel)]="selectedPriority" (ngModelChange)="applyFilters()" aria-label="Filter by priority">
@@ -55,7 +63,7 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
         <select [(ngModel)]="selectedCategoryId" (ngModelChange)="applyFilters()" aria-label="Filter by category">
           <option value="">All categories</option>
           @for (category of categories; track category.id) {
-            <option [value]="category.id">{{ category.name }}</option>
+            <option [value]="category.id">{{ category.icon }} {{ category.name }}</option>
           }
         </select>
         <select [(ngModel)]="sortBy" (ngModelChange)="applyFilters()" aria-label="Sort tasks">
@@ -66,8 +74,30 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
         </select>
       </div>
 
+      @if (selectedIds.size > 0) {
+        <div class="bulk-bar glass-panel">
+          <label class="bulk-bar__count">
+            <input
+              type="checkbox"
+              [checked]="allSelected"
+              (change)="toggleSelectAll($event)"
+              aria-label="Select all tasks on page"
+            />
+            {{ selectedIds.size }} selected
+          </label>
+          <div class="bulk-bar__actions">
+            <button type="button" class="btn btn--ghost" (click)="bulkComplete()">Complete</button>
+            <button type="button" class="btn btn--ghost" (click)="bulkArchive()">Archive</button>
+            <button type="button" class="btn btn--ghost btn--danger-text" (click)="bulkDelete()">
+              Delete
+            </button>
+            <button type="button" class="btn btn--ghost" (click)="clearSelection()">Clear</button>
+          </div>
+        </div>
+      }
+
       @if (showForm) {
-        <div class="panel">
+        <div class="panel" id="task-form-panel">
           <h2>{{ editingTask ? 'Edit task' : 'Create task' }}</h2>
           <app-task-form
             [categories]="categories"
@@ -87,12 +117,17 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
           [icon]="emptyIcon"
           [title]="emptyTitle"
           [message]="emptyMessage"
+          [actionLabel]="'Add task'"
+          (action)="openCreateForm()"
         />
       } @else {
         <div class="task-list">
           @for (task of tasks; track task.id) {
             <app-task-card
               [task]="task"
+              [selectable]="true"
+              [selected]="selectedIds.has(task.id)"
+              (selectedChange)="toggleSelection(task.id, $event)"
               (toggleComplete)="toggleComplete($event)"
               (edit)="editTask($event)"
               (archive)="archiveTask($event)"
@@ -151,7 +186,33 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
         border: 1px solid var(--border);
         border-radius: 10px;
         padding: 0.625rem 0.75rem;
-        background: var(--surface);
+        background: var(--input-bg);
+        color: var(--text-primary);
+      }
+      .bulk-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.75rem 1rem;
+        border-radius: 12px;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+      }
+      .bulk-bar__count {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 600;
+        font-size: 0.875rem;
+      }
+      .bulk-bar__actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      .btn--danger-text {
+        color: var(--danger);
       }
       .panel {
         background: var(--surface);
@@ -173,12 +234,8 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
         margin-top: 1.25rem;
       }
       @media (max-width: 768px) {
-        .filters {
-          grid-template-columns: 1fr;
-        }
-        .tasks-page__header {
-          flex-direction: column;
-        }
+        .filters { grid-template-columns: 1fr; }
+        .tasks-page__header { flex-direction: column; }
       }
     `,
   ],
@@ -189,6 +246,7 @@ export class TasksPageComponent implements OnInit, OnDestroy {
   private readonly categoryService = inject(CategoryService);
   private readonly taskFilterService = inject(TaskFilterService);
   private readonly toastService = inject(ToastService);
+  private readonly shortcuts = inject(UiShortcutService);
   private readonly destroy$ = new Subject<void>();
 
   view: TaskListView = 'ALL';
@@ -199,6 +257,7 @@ export class TasksPageComponent implements OnInit, OnDestroy {
   submitting = false;
   editingTask: Task | null = null;
   taskToDelete: Task | null = null;
+  selectedIds = new Set<string>();
   page = 1;
   totalPages = 1;
   selectedPriority = '';
@@ -210,9 +269,24 @@ export class TasksPageComponent implements OnInit, OnDestroy {
   emptyTitle = "You're all caught up 🎉";
   emptyMessage = 'No tasks here yet.';
 
+  get allSelected(): boolean {
+    return this.tasks.length > 0 && this.tasks.every((t) => this.selectedIds.has(t.id));
+  }
+
   ngOnInit(): void {
     this.categoryService.getCategories().subscribe({
       next: (categories) => (this.categories = categories),
+    });
+
+    if (this.route.snapshot.queryParamMap.get('new') === '1') {
+      this.openCreateForm();
+    }
+
+    this.shortcuts.newTask$.pipe(takeUntil(this.destroy$)).subscribe(() => this.openCreateForm());
+    this.shortcuts.closePanel$.pipe(takeUntil(this.destroy$)).subscribe(() => {
+      if (this.showForm) this.closeForm();
+      this.taskToDelete = null;
+      this.clearSelection();
     });
 
     combineLatest([
@@ -225,6 +299,7 @@ export class TasksPageComponent implements OnInit, OnDestroy {
           this.view = (data['view'] as TaskListView) ?? 'ALL';
           this.setPageMeta();
           this.loading = true;
+          this.clearSelection();
           const query: TaskFilterInput = {
             view: this.view,
             page: this.page,
@@ -257,6 +332,74 @@ export class TasksPageComponent implements OnInit, OnDestroy {
     this.destroy$.complete();
   }
 
+  toggleSelection(id: string, selected: boolean): void {
+    if (selected) this.selectedIds.add(id);
+    else this.selectedIds.delete(id);
+    this.selectedIds = new Set(this.selectedIds);
+  }
+
+  toggleSelectAll(event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    if (checked) {
+      this.tasks.forEach((t) => this.selectedIds.add(t.id));
+    } else {
+      this.clearSelection();
+    }
+    this.selectedIds = new Set(this.selectedIds);
+  }
+
+  clearSelection(): void {
+    this.selectedIds = new Set();
+  }
+
+  bulkComplete(): void {
+    const ids = [...this.selectedIds].filter((id) => {
+      const task = this.tasks.find((t) => t.id === id);
+      return task && task.status !== 'COMPLETED';
+    });
+    if (ids.length === 0) return;
+    forkJoin(ids.map((id) => this.taskService.completeTask(id))).subscribe({
+      next: () => {
+        this.toastService.success(`${ids.length} task(s) completed.`);
+        this.clearSelection();
+        this.reload();
+      },
+      error: () => this.toastService.error('Unable to complete some tasks.'),
+    });
+  }
+
+  bulkArchive(): void {
+    const ids = [...this.selectedIds].filter((id) => {
+      const task = this.tasks.find((t) => t.id === id);
+      return task && task.status !== 'ARCHIVED';
+    });
+    if (ids.length === 0) return;
+    forkJoin(ids.map((id) => this.taskService.archiveTask(id))).subscribe({
+      next: () => {
+        this.toastService.success(`${ids.length} task(s) archived.`);
+        this.clearSelection();
+        this.reload();
+      },
+      error: () => this.toastService.error('Unable to archive some tasks.'),
+    });
+  }
+
+  bulkDelete(): void {
+    const tasks = this.tasks.filter((t) => this.selectedIds.has(t.id));
+    if (tasks.length === 0) return;
+    const snapshots = tasks.map(snapshotFromTask);
+    const ids = tasks.map((t) => t.id);
+
+    forkJoin(ids.map((id) => this.taskService.deleteTask(id))).subscribe({
+      next: () => {
+        this.offerUndo(`${tasks.length} task(s) deleted.`, snapshots);
+        this.clearSelection();
+        this.reload();
+      },
+      error: () => this.toastService.error('Unable to delete some tasks.'),
+    });
+  }
+
   applyFilters(): void {
     this.page = 1;
     this.reload();
@@ -270,6 +413,9 @@ export class TasksPageComponent implements OnInit, OnDestroy {
   openCreateForm(): void {
     this.editingTask = null;
     this.showForm = true;
+    setTimeout(() => {
+      document.getElementById('title')?.focus();
+    }, 50);
   }
 
   editTask(task: Task): void {
@@ -298,7 +444,7 @@ export class TasksPageComponent implements OnInit, OnDestroy {
         this.reload();
       },
       error: () => {
-        this.toastService.error('Unable to create task. Please try again.');
+        this.toastService.error('Unable to save task. Please try again.');
         this.submitting = false;
       },
     });
@@ -332,9 +478,12 @@ export class TasksPageComponent implements OnInit, OnDestroy {
 
   deleteTask(): void {
     if (!this.taskToDelete) return;
-    this.taskService.deleteTask(this.taskToDelete.id).subscribe({
+    const snapshot = snapshotFromTask(this.taskToDelete);
+    const id = this.taskToDelete.id;
+
+    this.taskService.deleteTask(id).subscribe({
       next: () => {
-        this.toastService.success('Task deleted.');
+        this.offerUndo('Task deleted.', [snapshot]);
         this.taskToDelete = null;
         this.reload();
       },
@@ -342,7 +491,21 @@ export class TasksPageComponent implements OnInit, OnDestroy {
     });
   }
 
-  private reload(): void {
+  private offerUndo(message: string, snapshots: TaskSnapshot[]): void {
+    this.toastService.successWithAction(message, 'Undo', () => {
+      forkJoin(
+        snapshots.map((s) => this.taskService.createTask(snapshotToCreateInput(s))),
+      ).subscribe({
+        next: () => {
+          this.toastService.success('Task(s) restored.');
+          this.reload();
+        },
+        error: () => this.toastService.error('Unable to restore task(s).'),
+      });
+    });
+  }
+
+  reload(): void {
     this.taskFilterService.updateFilter({ page: this.page });
   }
 
@@ -358,10 +521,9 @@ export class TasksPageComponent implements OnInit, OnDestroy {
     const current = meta[this.view];
     this.pageTitle = current.title;
     this.emptyTitle = current.empty;
-    this.emptyMessage =
-      this.taskFilterService.current.search
-        ? 'No tasks found matching your search.'
-        : current.empty;
+    this.emptyMessage = this.taskFilterService.current.search
+      ? 'No tasks found matching your search.'
+      : current.empty;
     this.emptyIcon = this.view === 'TODAY' ? '🎉' : '✨';
   }
 }

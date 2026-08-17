@@ -39,10 +39,12 @@ interface NavItem {
   styles: [
     `
       .sidebar {
-        width: 260px;
+        width: var(--sidebar-width);
         background: var(--surface);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
         border-right: 1px solid var(--border);
-        padding: 1.25rem 1rem;
+        padding: var(--content-padding) 1rem;
         display: flex;
         flex-direction: column;
         gap: 1.5rem;
@@ -75,7 +77,7 @@ interface NavItem {
         display: flex;
         align-items: center;
         gap: 0.75rem;
-        padding: 0.75rem 0.875rem;
+        padding: var(--nav-link-padding);
         border-radius: 10px;
         color: var(--text-muted);
         text-decoration: none;

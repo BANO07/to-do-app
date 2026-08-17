@@ -6,6 +6,7 @@ import { Category } from '../../../core/models/app.models';
 import { ToastService } from '../../../core/services/toast.service';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
+import { IconPickerComponent } from '../../../shared/components/icon-picker/icon-picker.component';
 
 @Component({
   selector: 'app-categories-page',
@@ -15,6 +16,7 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
     ReactiveFormsModule,
     EmptyStateComponent,
     ConfirmDialogComponent,
+    IconPickerComponent,
   ],
   template: `
     <section class="categories-page">
@@ -23,9 +25,19 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
         <h1>Categories</h1>
       </header>
 
-      <form class="category-form" [formGroup]="form" (ngSubmit)="createCategory()">
-        <input type="text" formControlName="name" placeholder="Category name" aria-label="Category name" />
-        <input type="text" formControlName="icon" placeholder="Icon (emoji)" aria-label="Category icon" />
+      <form class="category-form glass-panel" [formGroup]="form" (ngSubmit)="createCategory()">
+        <div class="category-form__fields">
+          <div class="field">
+            <label for="categoryName">Name</label>
+            <input
+              id="categoryName"
+              type="text"
+              formControlName="name"
+              placeholder="Category name"
+            />
+          </div>
+          <app-icon-picker formControlName="icon" />
+        </div>
         <button type="submit" class="btn btn--primary" [disabled]="form.invalid">Add category</button>
       </form>
 
@@ -38,14 +50,19 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
       } @else {
         <div class="category-list">
           @for (category of categories; track category.id) {
-            <article class="category-card">
-              <div>
-                <strong>{{ category.icon }} {{ category.name }}</strong>
-                @if (category.description) {
-                  <p>{{ category.description }}</p>
-                }
+            <article class="category-card glass-panel">
+              <div class="category-card__info">
+                <span class="category-card__icon" aria-hidden="true">{{ category.icon }}</span>
+                <div>
+                  <strong>{{ category.name }}</strong>
+                  @if (category.description) {
+                    <p>{{ category.description }}</p>
+                  }
+                </div>
               </div>
-              <button type="button" class="btn btn--ghost" (click)="confirmDelete(category)">Delete</button>
+              <button type="button" class="btn btn--ghost" (click)="confirmDelete(category)">
+                Delete
+              </button>
             </article>
           }
         </div>
@@ -67,16 +84,33 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
       .eyebrow { margin: 0; color: var(--text-muted); }
       h1 { margin: 0.25rem 0 0; }
       .category-form {
-        display: grid;
-        grid-template-columns: 2fr 1fr auto;
-        gap: 0.75rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        padding: 1.25rem;
+        border-radius: 16px;
         margin-bottom: 1.25rem;
       }
-      .category-form input {
+      .category-form__fields {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+      }
+      .field label {
+        font-size: 0.875rem;
+        font-weight: 600;
+      }
+      .field input {
         border: 1px solid var(--border);
         border-radius: 10px;
         padding: 0.75rem;
-        background: var(--surface);
+        background: var(--input-bg);
+        color: var(--text-primary);
       }
       .category-list {
         display: flex;
@@ -88,20 +122,28 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
         justify-content: space-between;
         align-items: center;
         gap: 1rem;
-        padding: 1rem;
-        border: 1px solid var(--border);
+        padding: 1rem 1.25rem;
         border-radius: 14px;
-        background: var(--surface);
+      }
+      .category-card__info {
+        display: flex;
+        align-items: center;
+        gap: 0.875rem;
+      }
+      .category-card__icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background: var(--primary-soft);
+        display: grid;
+        place-items: center;
+        font-size: 1.35rem;
+        flex-shrink: 0;
       }
       .category-card p {
         margin: 0.25rem 0 0;
         color: var(--text-muted);
         font-size: 0.875rem;
-      }
-      @media (max-width: 768px) {
-        .category-form {
-          grid-template-columns: 1fr;
-        }
       }
     `,
   ],

@@ -14,7 +14,11 @@ Sign in with Google, manage tasks and categories, and track daily productivity â
 - Dashboard with today/overdue/upcoming metrics
 - Category management with default seed categories
 - Responsive SaaS-style UI (mobile + desktop)
-- Toast notifications, empty states, skeleton loaders
+- Toast notifications with undo, empty states, skeleton loaders
+- Bulk select: complete, archive, delete multiple tasks
+- Quick add with smart parsing (`@Category`, `tomorrow`, `!high`)
+- Keyboard shortcuts: `/` search, `N` new task, `Esc` close
+- 9 background styles, themes, motion intensity, compact layout
 - TypeORM migrations (no `synchronize` in production)
 
 ## Architecture
@@ -161,7 +165,15 @@ npm run build
 
 ## Deployment
 
-See [docs/deployment.md](./docs/deployment.md) for Vercel + Render + Neon/Supabase setup.
+See [docs/deployment.md](./docs/deployment.md) for Vercel + Render + Neon setup.
+
+```bash
+# Print env var checklist + JWT secret
+bash scripts/deploy-checklist.sh
+
+# Verify builds before pushing
+bash scripts/verify-deploy.sh
+```
 
 ## Security
 

@@ -1,12 +1,17 @@
 import { Component, inject } from '@angular/core';
 import { AuthService } from '../../../core/services/auth.service';
+import { ThemePickerComponent } from '../../../shared/components/theme-picker/theme-picker.component';
 
 @Component({
   selector: 'app-login-page',
   standalone: true,
+  imports: [ThemePickerComponent],
   template: `
     <div class="login-page">
-      <div class="login-card">
+      <div class="login-page__toolbar">
+        <app-theme-picker [compact]="true" />
+      </div>
+      <div class="login-card glass-panel">
         <div class="login-card__logo" aria-hidden="true">✓</div>
         <h1>Todo App</h1>
         <p>Your personal productivity workspace. Sign in to manage tasks, categories, and stay organized.</p>
@@ -24,14 +29,15 @@ import { AuthService } from '../../../core/services/auth.service';
         display: grid;
         place-items: center;
         padding: 1.5rem;
-        background:
-          radial-gradient(circle at top right, rgba(99, 102, 241, 0.15), transparent 40%),
-          var(--bg);
+        position: relative;
+      }
+      .login-page__toolbar {
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
       }
       .login-card {
         width: min(420px, 100%);
-        background: var(--surface);
-        border: 1px solid var(--border);
         border-radius: 20px;
         padding: 2rem;
         box-shadow: var(--shadow-lg);
@@ -42,12 +48,13 @@ import { AuthService } from '../../../core/services/auth.service';
         height: 56px;
         margin: 0 auto 1rem;
         border-radius: 16px;
-        background: var(--primary);
+        background: linear-gradient(135deg, var(--primary), #a855f7);
         color: white;
         display: grid;
         place-items: center;
         font-size: 1.5rem;
         font-weight: 700;
+        box-shadow: 0 8px 24px rgba(99, 102, 241, 0.35);
       }
       h1 {
         margin: 0 0 0.5rem;
@@ -62,8 +69,8 @@ import { AuthService } from '../../../core/services/auth.service';
         align-items: center;
         justify-content: center;
         gap: 0.75rem;
-        background: white;
-        color: #111827;
+        background: var(--input-bg);
+        color: var(--text-primary);
         border: 1px solid var(--border);
       }
       .btn--google span {

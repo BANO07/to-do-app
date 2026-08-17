@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 @Component({
@@ -10,6 +10,11 @@ import { CommonModule } from '@angular/common';
       <div class="empty-state__icon" aria-hidden="true">{{ icon }}</div>
       <h3>{{ title }}</h3>
       <p>{{ message }}</p>
+      @if (actionLabel) {
+        <button type="button" class="btn btn--primary empty-state__action" (click)="action.emit()">
+          {{ actionLabel }}
+        </button>
+      }
     </div>
   `,
   styles: [
@@ -29,7 +34,10 @@ import { CommonModule } from '@angular/common';
         font-size: 1.125rem;
       }
       p {
-        margin: 0;
+        margin: 0 0 1rem;
+      }
+      .empty-state__action {
+        margin-top: 0.5rem;
       }
     `,
   ],
@@ -38,4 +46,6 @@ export class EmptyStateComponent {
   @Input() icon = '✨';
   @Input() title = 'Nothing here yet';
   @Input() message = 'Get started by adding your first task.';
+  @Input() actionLabel = '';
+  @Output() action = new EventEmitter<void>();
 }

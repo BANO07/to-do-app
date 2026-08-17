@@ -12,7 +12,24 @@ import { Task } from '../../../core/models/app.models';
   standalone: true,
   imports: [CommonModule, DatePipe],
   template: `
-    <article class="task-card" [class.task-card--completed]="task.status === 'COMPLETED'">
+    <article
+      class="task-card"
+      [class.task-card--completed]="task.status === 'COMPLETED'"
+      [class.task-card--selectable]="selectable"
+      [class.task-card--selected]="selected"
+    >
+      @if (selectable) {
+        <label class="task-card__select">
+          <input
+            type="checkbox"
+            [checked]="selected"
+            (change)="selectedChange.emit(!selected)"
+            [attr.aria-label]="'Select ' + task.title"
+          />
+          <span class="task-card__select-box"></span>
+        </label>
+      }
+
       <label class="task-card__check">
         <input
           type="checkbox"
@@ -66,12 +83,47 @@ import { Task } from '../../../core/models/app.models';
       .task-card {
         display: grid;
         grid-template-columns: auto 1fr auto;
-        gap: 0.875rem;
-        padding: 1rem;
+        gap: var(--task-card-gap);
+        padding: var(--task-card-padding);
         border: 1px solid var(--border);
         border-radius: 14px;
         background: var(--surface);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
         box-shadow: var(--shadow-sm);
+        transition: box-shadow 0.2s ease, border-color 0.15s ease;
+      }
+      .task-card--selectable {
+        grid-template-columns: auto auto 1fr auto;
+      }
+      .task-card--selected {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 30%, transparent);
+      }
+      .task-card__select input {
+        position: absolute;
+        opacity: 0;
+      }
+      .task-card__select-box {
+        display: inline-flex;
+        width: 18px;
+        height: 18px;
+        border: 2px solid var(--border-strong);
+        border-radius: 5px;
+        align-items: center;
+        justify-content: center;
+      }
+      .task-card__select input:checked + .task-card__select-box {
+        background: var(--primary);
+        border-color: var(--primary);
+      }
+      .task-card__select input:checked + .task-card__select-box::after {
+        content: '✓';
+        color: white;
+        font-size: 0.65rem;
+      }
+      .task-card:hover {
+        box-shadow: var(--shadow-md);
       }
       .task-card--completed h3 {
         text-decoration: line-through;
@@ -161,7 +213,8 @@ import { Task } from '../../../core/models/app.models';
         background: var(--surface-muted);
       }
       @media (max-width: 640px) {
-        .task-card {
+        .task-card,
+        .task-card--selectable {
           grid-template-columns: auto 1fr;
         }
         .task-card__actions {
@@ -175,6 +228,9 @@ import { Task } from '../../../core/models/app.models';
 })
 export class TaskCardComponent {
   @Input({ required: true }) task!: Task;
+  @Input() selectable = false;
+  @Input() selected = false;
+  @Output() selectedChange = new EventEmitter<boolean>();
   @Output() toggleComplete = new EventEmitter<Task>();
   @Output() edit = new EventEmitter<Task>();
   @Output() archive = new EventEmitter<Task>();

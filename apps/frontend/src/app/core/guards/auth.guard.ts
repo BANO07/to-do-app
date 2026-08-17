@@ -2,6 +2,13 @@ import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 import { map, catchError, of } from 'rxjs';
 import { AuthService } from '../services/auth.service';
+import { PreferencesService } from '../services/preferences.service';
+
+const redirectAuthenticated = (): void => {
+  const router = inject(Router);
+  const prefs = inject(PreferencesService);
+  void router.navigateByUrl(prefs.defaultLandingPath);
+};
 
 export const authGuard: CanActivateFn = () => {
   const authService = inject(AuthService);
@@ -28,17 +35,16 @@ export const authGuard: CanActivateFn = () => {
 
 export const guestGuard: CanActivateFn = () => {
   const authService = inject(AuthService);
-  const router = inject(Router);
 
   if (authService.currentUser) {
-    router.navigate(['/dashboard']);
+    redirectAuthenticated();
     return false;
   }
 
   return authService.loadCurrentUser().pipe(
     map((user) => {
       if (user) {
-        router.navigate(['/dashboard']);
+        redirectAuthenticated();
         return false;
       }
       return true;

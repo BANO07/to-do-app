@@ -121,6 +121,8 @@ import { ToastService } from '../../../core/services/toast.service';
       }
       .stat-card {
         background: var(--surface);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
         border: 1px solid var(--border);
         border-radius: 14px;
         padding: 1rem;

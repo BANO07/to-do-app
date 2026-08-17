@@ -5,11 +5,12 @@ import { Router } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { User } from '../../core/models/app.models';
 import { UserAvatarComponent } from '../../shared/components/user-avatar/user-avatar.component';
+import { ThemePickerComponent } from '../../shared/components/theme-picker/theme-picker.component';
 
 @Component({
   selector: 'app-topbar',
   standalone: true,
-  imports: [CommonModule, FormsModule, UserAvatarComponent],
+  imports: [CommonModule, FormsModule, UserAvatarComponent, ThemePickerComponent],
   template: `
     <header class="topbar">
       <button type="button" class="btn-icon mobile-only" (click)="menuToggle.emit()" aria-label="Open menu">
@@ -21,13 +22,14 @@ import { UserAvatarComponent } from '../../shared/components/user-avatar/user-av
         <input
           id="search"
           type="search"
-          placeholder="Search tasks..."
+          placeholder="Search tasks... (press /)"
           [(ngModel)]="searchValue"
           (ngModelChange)="onSearchChange($event)"
         />
       </div>
 
       <div class="topbar__user">
+        <app-theme-picker [compact]="true" />
         @if (user) {
           <app-user-avatar [name]="user.name" [avatarUrl]="user.avatarUrl" [size]="40" />
           <div class="user-meta">
@@ -45,9 +47,11 @@ import { UserAvatarComponent } from '../../shared/components/user-avatar/user-av
         display: flex;
         align-items: center;
         gap: 1rem;
-        padding: 1rem 1.25rem;
+        padding: var(--topbar-padding);
         border-bottom: 1px solid var(--border);
         background: var(--surface);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
         position: sticky;
         top: 0;
         z-index: 100;
