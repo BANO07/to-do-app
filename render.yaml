@@ -6,7 +6,7 @@ services:
     plan: free
     buildCommand: npm ci && npm run build
     startCommand: npm run start:prod
-    releaseCommand: npm run migrate:run
+    preDeployCommand: npm run migrate:run
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
