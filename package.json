@@ -1,0 +1,24 @@
+{
+  "name": "todo-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone full-stack Todo application with Google OAuth, NestJS GraphQL API, and Angular frontend",
+  "workspaces": [
+    "apps/backend",
+    "apps/frontend"
+  ],
+  "scripts": {
+    "install:all": "npm install --workspace apps/backend && npm install --workspace apps/frontend",
+    "start:backend": "npm run start:dev --workspace apps/backend",
+    "start:frontend": "npm start --workspace apps/frontend",
+    "build:backend": "npm run build --workspace apps/backend",
+    "build:frontend": "npm run build --workspace apps/frontend",
+    "build": "npm run build:backend && npm run build:frontend",
+    "test:backend": "npm test --workspace apps/backend",
+    "test:frontend": "npm test --workspace apps/frontend",
+    "migrate:run": "npm run migrate:run --workspace apps/backend"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.local
+*.log
+.DS_Store
+apps/backend/src/schema.gql
+.idea/
+.vscode/
