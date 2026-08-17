@@ -4,9 +4,8 @@ services:
     runtime: node
     rootDir: apps/backend
     plan: free
-    buildCommand: npm ci && npm run build
     startCommand: npm run start:prod
-    preDeployCommand: npm run migrate:run
+    buildCommand: npm ci && npm run migrate:run && npm run build
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
