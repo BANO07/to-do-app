@@ -44,58 +44,21 @@ export class AuthService {
     res.clearCookie('access_token', this.authCookieOptions());
   }
 
-  /**
-   * Commit the session cookie on a 200 document, then send the browser to the SPA.
-   * A 302 bounce off the API host is dropped by Chrome bounce-tracking / third-party
-   * cookie rules, so GraphQL `me` would run without `access_token`.
-   */
   redirectToApp(res: Response): void {
-    const destination = `${this.frontendOrigin()}/dashboard`;
-    const safeHref = escapeHtml(destination);
-
-    res.status(200).type('html').send(`<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta http-equiv="refresh" content="0.2;url=${safeHref}" />
-    <title>Signing in</title>
-  </head>
-  <body>
-    <p>Signing you in…</p>
-    <p><a href="${safeHref}">Continue</a></p>
-  </body>
-</html>`);
+    res.redirect(`${this.frontendOrigin()}/dashboard`);
   }
 
   private authCookieOptions(): CookieOptions {
     const isProduction =
       this.configService.get<string>('NODE_ENV') === 'production';
-    const crossSite = this.isCrossSite();
-    const sameSite: CookieOptions['sameSite'] =
-      crossSite || isProduction ? 'none' : 'lax';
 
     return {
       httpOnly: true,
-      secure: sameSite === 'none' || isProduction,
-      sameSite,
+      secure: isProduction,
+      sameSite: 'lax',
       maxAge: this.cookieMaxAgeMs(),
       path: '/',
     };
-  }
-
-  private isCrossSite(): boolean {
-    try {
-      const frontend = new URL(this.frontendOrigin());
-      const backend = new URL(
-        this.configService.getOrThrow<string>('BACKEND_URL'),
-      );
-      return (
-        frontend.protocol !== backend.protocol ||
-        frontend.hostname !== backend.hostname
-      );
-    } catch {
-      return true;
-    }
   }
 
   private frontendOrigin(): string {
@@ -120,12 +83,4 @@ export class AuthService {
     }
     return user;
   }
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
 }

@@ -106,7 +106,7 @@ describe('AuthService', () => {
     );
   });
 
-  it('sets SameSite=None Secure cookies for Vercel → Render', () => {
+  it('sets a host-only lax secure cookie in production', () => {
     configGet.mockImplementation((key: string) => {
       if (key === 'NODE_ENV') {
         return 'production';
@@ -134,26 +134,17 @@ describe('AuthService', () => {
       expect.objectContaining({
         httpOnly: true,
         secure: true,
-        sameSite: 'none',
+        sameSite: 'lax',
         path: '/',
       }),
     );
+    const options = res.cookie.mock.calls[0][2];
+    expect(options).not.toHaveProperty('domain');
   });
 
-  it('commits the cookie on a 200 HTML redirect instead of a 302 bounce', () => {
-    const res = {
-      status: jest.fn().mockReturnThis(),
-      type: jest.fn().mockReturnThis(),
-      send: jest.fn(),
-    };
-
+  it('redirects to the frontend dashboard after OAuth', () => {
+    const res = { redirect: jest.fn() };
     service.redirectToApp(res as never);
-
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.type).toHaveBeenCalledWith('html');
-    const html = res.send.mock.calls[0][0] as string;
-    expect(html).toContain('http://localhost:4200/dashboard');
-    expect(html).toContain('http-equiv="refresh"');
-    expect(html).not.toContain('javascript:');
+    expect(res.redirect).toHaveBeenCalledWith('http://localhost:4200/dashboard');
   });
 });

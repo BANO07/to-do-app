@@ -56,7 +56,7 @@ Keep this as `DATABASE_URL` for the backend.
 | `DATABASE_URL` | Neon connection string |
 | `GOOGLE_CLIENT_ID` | (Step 4) |
 | `GOOGLE_CLIENT_SECRET` | (Step 4) |
-| `GOOGLE_CALLBACK_URL` | `https://todo-app-api.onrender.com/auth/google/callback` |
+| `GOOGLE_CALLBACK_URL` | `https://YOUR-APP.vercel.app/api/auth/google/callback` |
 | `JWT_SECRET` | output of `openssl rand -base64 48` |
 | `FRONTEND_URL` | `https://YOUR-APP.vercel.app` (update after Step 3) |
 | `BACKEND_URL` | `https://todo-app-api.onrender.com` |
@@ -97,11 +97,7 @@ curl https://YOUR-BACKEND.onrender.com/health
 | **Build Command** | `npm run build` |
 | **Output Directory** | `dist/frontend/browser` |
 
-4. **Environment Variables** (Production):
-
-| Name | Value |
-|------|-------|
-| `API_URL` | `https://YOUR-BACKEND.onrender.com` |
+4. **Environment Variables** (Production): none required — the frontend uses same-origin `/api/*` paths (see `vercel.json` rewrites).
 
 5. Deploy.
 
@@ -126,7 +122,7 @@ https://YOUR-APP.vercel.app
 **Authorized redirect URIs**
 ```
 http://localhost:3000/auth/google/callback
-https://YOUR-BACKEND.onrender.com/auth/google/callback
+https://YOUR-APP.vercel.app/api/auth/google/callback
 ```
 
 4. Save. Ensure Render has matching `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_CALLBACK_URL`.
@@ -147,20 +143,20 @@ https://YOUR-BACKEND.onrender.com/auth/google/callback
 
 ```
 User browser
-    ↓
-Vercel (Angular SPA)
-    ↓ GraphQL + cookies (credentials: include)
+    ↓ same-origin (/api/*)
+Vercel (Angular SPA + API rewrite proxy)
+    ↓ server-side rewrite
 Render (NestJS API)
     ↓
 Neon (PostgreSQL)
 ```
 
 Auth flow:
-1. Frontend redirects to `BACKEND/auth/google`
-2. Google → `BACKEND/auth/google/callback`
-3. Backend sets httpOnly JWT cookie (`SameSite=None; Secure`)
+1. Frontend redirects to `/api/auth/google` (proxied to Render)
+2. Google → `FRONTEND/api/auth/google/callback` (proxied to Render)
+3. Backend sets host-only httpOnly JWT cookie (`SameSite=Lax; Secure`)
 4. Redirect to `FRONTEND/dashboard`
-5. GraphQL calls include cookie cross-origin
+5. GraphQL calls to `/api/graphql` include cookie (same origin)
 
 ---
 
@@ -173,7 +169,7 @@ NODE_ENV=production
 DATABASE_URL=postgresql://...neon...?sslmode=require
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
-GOOGLE_CALLBACK_URL=https://YOUR-BACKEND.onrender.com/auth/google/callback
+GOOGLE_CALLBACK_URL=https://YOUR-APP.vercel.app/api/auth/google/callback
 JWT_SECRET=<48+ char random string>
 JWT_EXPIRES_IN=7d
 FRONTEND_URL=https://YOUR-APP.vercel.app
@@ -184,9 +180,7 @@ Render sets `PORT` automatically — do not hardcode.
 
 ### Frontend (Vercel)
 
-```
-API_URL=https://YOUR-BACKEND.onrender.com
-```
+No build-time env vars required. `apps/frontend/vercel.json` rewrites `/api/:path*` to your Render backend.
 
 ---
 
@@ -196,10 +190,10 @@ API_URL=https://YOUR-BACKEND.onrender.com
 |---------|-----|
 | Google login redirects to localhost | Update `GOOGLE_CALLBACK_URL` and Google Console redirect URI |
 | CORS error after login | `FRONTEND_URL` on Render must exactly match Vercel URL (no trailing slash) |
-| Session lost / `me` returns 401 after Google login | Cookie must be `SameSite=None; Secure` (automatic when frontend and API origins differ). The OAuth callback now returns **200 HTML** then redirects — a 302 bounce off Render is dropped by Chrome. Confirm `FRONTEND_URL` has **no trailing slash**. |
+| Session lost / `me` returns 401 after Google login | Confirm the browser calls `/api/graphql` (same origin), not Render directly. Cookie must be host-only on the Vercel domain (`SameSite=Lax; Secure`). Set `GOOGLE_CALLBACK_URL` to `https://YOUR-APP.vercel.app/api/auth/google/callback` and add the same URI in Google Cloud Console. Confirm `FRONTEND_URL` has **no trailing slash**. |
 | 502 on first request | Render free tier waking up — wait 30–60s |
 | DB connection failed | Use Neon pooled URL with `?sslmode=require` |
-| Build fails on Vercel | Set `API_URL` env var before deploy |
+| Build fails on Vercel | Check `vercel.json` rewrite destination matches your Render URL |
 
 ---
 
@@ -216,12 +210,12 @@ API_URL=https://YOUR-BACKEND.onrender.com
 | File | Purpose |
 |------|---------|
 | `render.yaml` | Render Blueprint for backend |
-| `apps/frontend/vercel.json` | SPA routing on Vercel |
-| `apps/frontend/scripts/set-env.js` | Injects `API_URL` at build time |
+| `apps/frontend/vercel.json` | SPA routing + `/api/*` proxy to Render |
+| `apps/frontend/scripts/set-env.js` | Writes same-origin `/api` production environment |
 
 Local production build test:
 
 ```bash
 cd apps/frontend
-API_URL=https://your-backend.onrender.com npm run build
+npm run build
 ```
