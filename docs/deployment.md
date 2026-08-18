@@ -196,7 +196,7 @@ API_URL=https://YOUR-BACKEND.onrender.com
 |---------|-----|
 | Google login redirects to localhost | Update `GOOGLE_CALLBACK_URL` and Google Console redirect URI |
 | CORS error after login | `FRONTEND_URL` on Render must exactly match Vercel URL (no trailing slash) |
-| Session lost / `me` returns null | Cookie needs HTTPS + `SameSite=None` (automatic in production). Ensure frontend uses `withCredentials: true` |
+| Session lost / `me` returns 401 after Google login | Cookie must be `SameSite=None; Secure` (automatic when frontend and API origins differ). The OAuth callback now returns **200 HTML** then redirects — a 302 bounce off Render is dropped by Chrome. Confirm `FRONTEND_URL` has **no trailing slash**. |
 | 502 on first request | Render free tier waking up — wait 30–60s |
 | DB connection failed | Use Neon pooled URL with `?sslmode=require` |
 | Build fails on Vercel | Set `API_URL` env var before deploy |

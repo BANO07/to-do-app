@@ -10,33 +10,28 @@ import { AuthGuard } from '@nestjs/passport';
 import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
-import { ConfigService } from '@nestjs/config';
+import { GoogleAuthGuard } from './google-auth.guard';
 import { User } from '../users/entities/user.entity';
 
 @Controller('auth')
 export class AuthController {
-  constructor(
-    private readonly authService: AuthService,
-    private readonly configService: ConfigService,
-  ) {}
+  constructor(private readonly authService: AuthService) {}
 
   @Get('google')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
-  @UseGuards(AuthGuard('google'))
+  @UseGuards(GoogleAuthGuard)
   googleAuth(): void {
     // Redirect handled by Passport
   }
 
   @Get('google/callback')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
-  @UseGuards(AuthGuard('google'))
+  @UseGuards(GoogleAuthGuard)
   googleCallback(@Req() req: Request, @Res() res: Response): void {
     const user = req.user as User;
     const token = this.authService.signToken(user);
     this.authService.setAuthCookie(res, token);
-
-    const frontendUrl = this.configService.getOrThrow<string>('FRONTEND_URL');
-    res.redirect(`${frontendUrl}/dashboard`);
+    this.authService.redirectToApp(res);
   }
 
   @Post('logout')

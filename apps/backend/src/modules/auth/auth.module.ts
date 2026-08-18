@@ -7,12 +7,13 @@ import { AuthController } from './auth.controller';
 import { AuthResolver } from './auth.resolver';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { GoogleAuthGuard } from './google-auth.guard';
 import { UsersModule } from '../users/users.module';
 import { CategoriesModule } from '../categories/categories.module';
 
 @Module({
   imports: [
-    PassportModule.register({ defaultStrategy: 'jwt' }),
+    PassportModule.register({ defaultStrategy: 'jwt', session: false }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -28,7 +29,7 @@ import { CategoriesModule } from '../categories/categories.module';
     CategoriesModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, AuthResolver, GoogleStrategy, JwtStrategy],
+  providers: [AuthService, AuthResolver, GoogleStrategy, JwtStrategy, GoogleAuthGuard],
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}

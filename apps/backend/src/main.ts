@@ -16,7 +16,9 @@ async function bootstrap() {
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   app.use(cookieParser());
 
-  const frontendUrl = configService.getOrThrow<string>('FRONTEND_URL');
+  const frontendUrl = configService
+    .getOrThrow<string>('FRONTEND_URL')
+    .replace(/\/$/, '');
   app.enableCors({
     origin: frontendUrl,
     credentials: true,
