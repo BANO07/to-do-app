@@ -7,6 +7,9 @@
     "apps/backend",
     "apps/frontend"
   ],
+  "dependencies": {
+    "@nestjs/platform-express": "^11.2.1"
+  },
   "scripts": {
     "install:all": "npm install --workspace apps/backend && npm install --workspace apps/frontend",
     "start:backend": "npm run start:dev --workspace apps/backend",
