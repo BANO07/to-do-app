@@ -37,6 +37,18 @@ export const CATEGORY_ICONS = [
           </button>
         }
       </div>
+      <label class="icon-picker__custom-label" for="custom-category-icon">Custom icon</label>
+      <input
+        id="custom-category-icon"
+        class="icon-picker__custom"
+        type="text"
+        maxlength="16"
+        [value]="value"
+        placeholder="✨"
+        [disabled]="disabled"
+        (input)="onCustom($event)"
+        autocomplete="off"
+      />
     </fieldset>
   `,
   styles: [
@@ -82,6 +94,23 @@ export const CATEGORY_ICONS = [
         background: var(--primary-soft);
         box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 25%, transparent);
       }
+      .icon-picker__custom-label {
+        display: block;
+        margin-top: 0.75rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--text-muted);
+      }
+      .icon-picker__custom {
+        margin-top: 0.35rem;
+        width: min(12rem, 100%);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.6rem 0.75rem;
+        background: var(--input-bg);
+        color: var(--text-primary);
+        font: inherit;
+      }
     `,
   ],
 })
@@ -99,6 +128,14 @@ export class IconPickerComponent implements ControlValueAccessor {
     if (this.disabled) return;
     this.value = icon;
     this.onChange(icon);
+    this.onTouched();
+  }
+
+  onCustom(event: Event): void {
+    if (this.disabled) return;
+    const raw = (event.target as HTMLInputElement).value.replace(/[<>]/g, '').slice(0, 16);
+    this.value = raw || '📁';
+    this.onChange(this.value);
     this.onTouched();
   }
 

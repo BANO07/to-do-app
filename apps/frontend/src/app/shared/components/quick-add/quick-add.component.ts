@@ -79,6 +79,7 @@ export class QuickAddComponent {
 
   submit(event: Event): void {
     event.preventDefault();
+    if (this.submitting) return;
     const parsed = parseQuickAdd(this.value, this.categories);
     if (!parsed.title) return;
 

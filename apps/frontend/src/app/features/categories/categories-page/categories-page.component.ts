@@ -36,8 +36,24 @@ import { IconPickerComponent } from '../../../shared/components/icon-picker/icon
               placeholder="Category name"
             />
           </div>
+          <div class="field">
+            <label for="categoryDescription">Description</label>
+            <input
+              id="categoryDescription"
+              type="text"
+              formControlName="description"
+              placeholder="Optional description"
+            />
+          </div>
           <app-icon-picker formControlName="icon" />
         </div>
+        @if (form.value.name) {
+          <p class="category-preview">
+            Preview:
+            <span aria-hidden="true">{{ form.value.icon || '📁' }}</span>
+            {{ form.value.name }}
+          </p>
+        }
         <button type="submit" class="btn btn--primary" [disabled]="form.invalid">Add category</button>
       </form>
 
@@ -145,6 +161,14 @@ import { IconPickerComponent } from '../../../shared/components/icon-picker/icon
         color: var(--text-muted);
         font-size: 0.875rem;
       }
+      .category-preview {
+        margin: 0;
+        font-size: 0.875rem;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
     `,
   ],
 })
@@ -158,7 +182,8 @@ export class CategoriesPageComponent implements OnInit {
 
   readonly form = this.fb.group({
     name: ['', [Validators.required, Validators.maxLength(100)]],
-    icon: ['📁', Validators.maxLength(50)],
+    description: ['', Validators.maxLength(255)],
+    icon: ['📁', Validators.maxLength(16)],
   });
 
   ngOnInit(): void {
@@ -171,12 +196,13 @@ export class CategoriesPageComponent implements OnInit {
     this.categoryService
       .createCategory({
         name: value.name!.trim(),
-        icon: value.icon || undefined,
+        description: value.description?.trim() || undefined,
+        icon: sanitizeCategoryIcon(value.icon),
       })
       .subscribe({
         next: () => {
           this.toastService.success('Category created.');
-          this.form.reset({ name: '', icon: '📁' });
+          this.form.reset({ name: '', description: '', icon: '📁' });
           this.loadCategories();
         },
         error: () => this.toastService.error('Unable to create category. Please try again.'),
@@ -204,4 +230,9 @@ export class CategoriesPageComponent implements OnInit {
       next: (categories) => (this.categories = categories),
     });
   }
+}
+
+function sanitizeCategoryIcon(value: string | null | undefined): string {
+  const cleaned = (value ?? '').replace(/[<>]/g, '').trim();
+  return cleaned.slice(0, 16) || '📁';
 }

@@ -10,6 +10,7 @@ PostgreSQL with TypeORM migrations (`synchronize: false`).
 - `email` unique
 - `name`
 - `avatar_url`
+- `iana_timezone` IANA zone, default `UTC` (for example `Asia/Kolkata`)
 - `created_at`, `updated_at`, `last_login_at`
 - `is_active`
 
@@ -25,8 +26,78 @@ PostgreSQL with TypeORM migrations (`synchronize: false`).
 - `title`, `description`
 - `status` enum: TODO, IN_PROGRESS, COMPLETED, ARCHIVED
 - `priority` enum: LOW, MEDIUM, HIGH, URGENT
-- `due_date`, `completed_at`
+- `due_date`, `completed_at` (`timestamptz`, stored as UTC instants)
 - `category_id` FK → categories (nullable, SET NULL on delete)
+- `series_id` UUID (nullable) — recurrence series identity
+- `occurrence_date` date (nullable) — civil date of this occurrence
+- partial unique index `UQ_tasks_series_occurrence` on (`series_id`, `occurrence_date`) where both are not null
+
+### subtasks
+- `id` UUID PK
+- `task_id` FK → tasks (CASCADE)
+- `user_id` FK → users (CASCADE)
+- `title`, `description`
+- `status` enum: TODO, COMPLETED
+- `position`
+- `completed_at`, `created_at`, `updated_at`
+- index (`user_id`, `task_id`)
+
+### recurrence_rules
+- `id` UUID PK
+- `user_id` FK → users (CASCADE)
+- `series_id` unique — shared with `tasks.series_id`
+- `frequency` enum: DAILY, WEEKDAYS, WEEKLY, BIWEEKLY, MONTHLY, YEARLY, CUSTOM
+- `interval` (default 1)
+- `days_of_week` int[] (0 = Sunday … 6 = Saturday)
+- `day_of_month`
+- `start_date`, `end_date`
+- `timezone` IANA zone copied from the user at rule creation
+- `last_generated_occurrence`
+- `is_active`
+- Completing an occurrence inserts the **next** task only. Duplicate dates are rejected by `UQ_tasks_series_occurrence`.
+
+### reminders
+- `id` UUID PK
+- `user_id` FK → users (CASCADE)
+- `task_id` FK → tasks (CASCADE)
+- `fire_at` timestamptz (UTC)
+- `offset_minutes` nullable — relative to task due date
+- `channel` enum: IN_APP, PUSH, EMAIL (single selected delivery channel)
+- `sent_at` nullable — set only after the selected delivery channel succeeds
+- indexes (`user_id`, `task_id`), (`fire_at`)
+
+### notification_preferences
+- `id` UUID PK
+- `user_id` unique FK → users (CASCADE)
+- `in_app_enabled` default `true`
+- `email_enabled` default `true`
+- `push_enabled` default `false`
+- `reminder_enabled` default `true`
+- `created_at`, `updated_at`
+
+### push_subscriptions
+- `id` UUID PK
+- `user_id` FK → users (CASCADE)
+- `endpoint` unique
+- `p256dh`
+- `auth`
+- `created_at`, `updated_at`
+- index (`user_id`, `created_at`)
+
+### notifications
+- `id` UUID PK
+- `user_id` FK → users (CASCADE)
+- `reminder_id` nullable FK → reminders (SET NULL)
+- `task_id` nullable FK → tasks (SET NULL)
+- `type` enum: `REMINDER`
+- `channel` enum: IN_APP, PUSH, EMAIL
+- `status` enum: PENDING, SENT, FAILED
+- `title`, `message`
+- `scheduled_at`, `delivered_at`, `read_at`
+- `idempotency_key` unique
+- `last_error` nullable
+- `created_at`, `updated_at`
+- indexes (`user_id`, `created_at`), (`user_id`, `read_at`), (`status`, `scheduled_at`), (`reminder_id`), (`task_id`)
 
 ## Indexes
 
@@ -36,12 +107,22 @@ PostgreSQL with TypeORM migrations (`synchronize: false`).
 - `tasks(user_id, due_date)`
 - `tasks(user_id, category_id)`
 - `tasks(user_id, created_at)`
+- `tasks(user_id, series_id)`
+- `subtasks(user_id, task_id)`
+- `recurrence_rules(user_id)`
+- `reminders(user_id, task_id)`, `reminders(fire_at)`
+- `notification_preferences(user_id)`
+- `push_subscriptions(endpoint)`, `push_subscriptions(user_id, created_at)`
+- `notifications(user_id, created_at)`, `notifications(user_id, read_at)`, `notifications(status, scheduled_at)`, `notifications(reminder_id)`, `notifications(task_id)`, `notifications(idempotency_key)`
 
 ## Migrations
+
+Do not edit `1723900000000-InitialSchema.ts`. Phase B lives in `1724000000000-AdvancedTasksFoundation.ts`. Phase C lives in `1724100000000-NotificationsPhaseC.ts`.
 
 ```bash
 cd apps/backend
 npm run migrate:run
+npm run typeorm -- migration:show
 ```
 
 Revert last migration:

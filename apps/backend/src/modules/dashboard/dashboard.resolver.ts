@@ -13,6 +13,6 @@ export class DashboardResolver {
 
   @Query(() => DashboardSummary, { name: 'dashboardSummary' })
   dashboardSummary(@CurrentUser() user: User): Promise<DashboardSummary> {
-    return this.dashboardService.getSummary(user.id);
+    return this.dashboardService.getSummary(user.id, user.ianaTimezone);
   }
 }

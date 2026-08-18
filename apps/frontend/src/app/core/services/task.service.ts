@@ -16,6 +16,9 @@ import {
   DASHBOARD_SUMMARY_QUERY,
   DELETE_TASK_MUTATION,
   REOPEN_TASK_MUTATION,
+  RESTORE_TASK_MUTATION,
+  STOP_RECURRENCE_MUTATION,
+  TASK_QUERY,
   TASKS_QUERY,
   UPDATE_TASK_MUTATION,
 } from '../graphql/operations';
@@ -41,6 +44,16 @@ export class TaskService {
         fetchPolicy: 'network-only',
       })
       .pipe(map(({ data }) => data.tasks));
+  }
+
+  getTask(id: string): Observable<Task> {
+    return this.apollo
+      .query<{ task: Task }>({
+        query: TASK_QUERY,
+        variables: { id },
+        fetchPolicy: 'network-only',
+      })
+      .pipe(map(({ data }) => data.task));
   }
 
   createTask(input: CreateTaskInput): Observable<Task> {
@@ -88,6 +101,15 @@ export class TaskService {
       .pipe(map(({ data }) => data!.archiveTask));
   }
 
+  restoreTask(id: string): Observable<Task> {
+    return this.apollo
+      .mutate<{ restoreTask: Task }>({
+        mutation: RESTORE_TASK_MUTATION,
+        variables: { id },
+      })
+      .pipe(map(({ data }) => data!.restoreTask));
+  }
+
   deleteTask(id: string): Observable<boolean> {
     return this.apollo
       .mutate<{ deleteTask: boolean }>({
@@ -95,5 +117,14 @@ export class TaskService {
         variables: { id },
       })
       .pipe(map(({ data }) => data!.deleteTask));
+  }
+
+  stopRecurrence(taskId: string): Observable<Task> {
+    return this.apollo
+      .mutate<{ stopRecurrence: Task }>({
+        mutation: STOP_RECURRENCE_MUTATION,
+        variables: { taskId },
+      })
+      .pipe(map(({ data }) => data!.stopRecurrence));
   }
 }

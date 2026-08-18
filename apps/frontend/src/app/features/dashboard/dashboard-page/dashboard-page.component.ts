@@ -1,13 +1,15 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { forkJoin, Subject, takeUntil } from 'rxjs';
 import { AuthService } from '../../../core/services/auth.service';
 import { TaskService } from '../../../core/services/task.service';
-import { DashboardSummary, Task, TaskConnection } from '../../../core/models/app.models';
+import { DashboardSummary, Task, TaskStatus } from '../../../core/models/app.models';
 import { TaskCardComponent } from '../../../shared/components/task-card/task-card.component';
 import { TaskSkeletonComponent } from '../../../shared/components/task-skeleton/task-skeleton.component';
 import { EmptyStateComponent } from '../../../shared/components/empty-state/empty-state.component';
 import { ToastService } from '../../../core/services/toast.service';
+import { COMPLETION_RATE_HELP, formatCompletionRate } from '../../../core/utils/completion-rate';
 
 @Component({
   selector: 'app-dashboard-page',
@@ -39,19 +41,24 @@ import { ToastService } from '../../../core/services/toast.service';
             <small>Tasks</small>
           </article>
           <article class="stat-card">
-            <span>Completed</span>
-            <strong>{{ summary.todayCompleted }}</strong>
-            <small>Today</small>
+            <span>Open</span>
+            <strong>{{ summary.todayOpen }}</strong>
+            <small>Due today</small>
           </article>
           <article class="stat-card">
-            <span>Pending</span>
-            <strong>{{ summary.todayPending }}</strong>
-            <small>Today</small>
+            <span>In Progress</span>
+            <strong>{{ summary.todayInProgress }}</strong>
+            <small>Due today</small>
+          </article>
+          <article class="stat-card">
+            <span>Completed</span>
+            <strong>{{ summary.todayCompleted }}</strong>
+            <small>Due today</small>
           </article>
           <article class="stat-card">
             <span>High Priority</span>
             <strong>{{ summary.todayHighPriority }}</strong>
-            <small>Today</small>
+            <small>Due today</small>
           </article>
           <article class="stat-card">
             <span>Overdue</span>
@@ -60,10 +67,15 @@ import { ToastService } from '../../../core/services/toast.service';
           <article class="stat-card">
             <span>Active</span>
             <strong>{{ summary.totalActiveTasks }}</strong>
+            <small>Open + in progress</small>
           </article>
-          <article class="stat-card stat-card--wide">
+          <article
+            class="stat-card stat-card--wide"
+            [title]="completionRateHelp"
+          >
             <span>Completion rate today</span>
-            <strong>{{ summary.completionPercentage }}%</strong>
+            <strong>{{ completionRate.value }}</strong>
+            <small>{{ completionRate.hint }}</small>
           </article>
         </div>
 
@@ -83,10 +95,8 @@ import { ToastService } from '../../../core/services/toast.service';
               @for (task of todayTasks; track task.id) {
                 <app-task-card
                   [task]="task"
-                  (toggleComplete)="onToggleComplete($event)"
-                  (edit)="noop()"
-                  (archive)="noop()"
-                  (remove)="noop()"
+                  [showActions]="false"
+                  (statusChange)="onStatusChange(task, $event)"
                 />
               }
             </div>
@@ -177,14 +187,27 @@ import { ToastService } from '../../../core/services/toast.service';
     `,
   ],
 })
-export class DashboardPageComponent implements OnInit {
+export class DashboardPageComponent implements OnInit, OnDestroy {
   private readonly authService = inject(AuthService);
   private readonly taskService = inject(TaskService);
   private readonly toastService = inject(ToastService);
+  private readonly destroy$ = new Subject<void>();
+  private loadingInFlight = false;
 
   summary: DashboardSummary | null = null;
   todayTasks: Task[] = [];
   loading = true;
+  readonly completionRateHelp = COMPLETION_RATE_HELP;
+
+  get completionRate(): { value: string; hint: string } {
+    if (!this.summary) {
+      return { value: '—', hint: 'No tasks due today' };
+    }
+    return formatCompletionRate(
+      this.summary.todayTotal,
+      this.summary.completionPercentage,
+    );
+  }
 
   get firstName(): string {
     return this.authService.currentUser?.name.split(' ')[0] ?? 'there';
@@ -198,37 +221,58 @@ export class DashboardPageComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.taskService.getDashboardSummary().subscribe({
-      next: (summary) => {
-        this.summary = summary;
-        this.loading = false;
-      },
-      error: () => {
-        this.toastService.error('Something went wrong while loading your dashboard.');
-        this.loading = false;
-      },
-    });
+    this.loadDashboard();
+  }
 
-    this.taskService
-      .getTasks({ view: 'TODAY', limit: 5, page: 1 })
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+
+  private loadDashboard(): void {
+    if (this.loadingInFlight) {
+      return;
+    }
+    this.loadingInFlight = true;
+    this.loading = true;
+
+    forkJoin({
+      summary: this.taskService.getDashboardSummary(),
+      today: this.taskService.getTasks({ view: 'TODAY', limit: 5, page: 1 }),
+    })
+      .pipe(takeUntil(this.destroy$))
       .subscribe({
-        next: (connection: TaskConnection) => {
-          this.todayTasks = connection.items;
+        next: ({ summary, today }) => {
+          this.summary = summary;
+          this.todayTasks = today.items;
+          this.loading = false;
+          this.loadingInFlight = false;
+        },
+        error: () => {
+          this.toastService.error('Something went wrong while loading your dashboard.');
+          this.loading = false;
+          this.loadingInFlight = false;
         },
       });
   }
 
-  onToggleComplete(task: Task): void {
+  onStatusChange(task: Task, status: TaskStatus): void {
+    if (status === task.status) {
+      return;
+    }
     const request =
-      task.status === 'COMPLETED'
-        ? this.taskService.reopenTask(task.id)
-        : this.taskService.completeTask(task.id);
+      status === 'COMPLETED'
+        ? this.taskService.completeTask(task.id)
+        : task.status === 'COMPLETED' && status === 'TODO'
+          ? this.taskService.reopenTask(task.id)
+          : this.taskService.updateTask(task.id, { status });
 
-    request.subscribe({
-      next: () => this.ngOnInit(),
+    request.pipe(takeUntil(this.destroy$)).subscribe({
+      next: () => {
+        this.loadingInFlight = false;
+        this.loadDashboard();
+      },
       error: () => this.toastService.error('Unable to update task. Please try again.'),
     });
   }
-
-  noop(): void {}
 }

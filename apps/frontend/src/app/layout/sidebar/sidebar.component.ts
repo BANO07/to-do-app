@@ -123,6 +123,7 @@ export class SidebarComponent {
     { label: 'Upcoming', route: '/tasks/upcoming', icon: '📅' },
     { label: 'All Tasks', route: '/tasks/all', icon: '📋' },
     { label: 'Completed', route: '/tasks/completed', icon: '✅' },
+    { label: 'Archived', route: '/tasks/archived', icon: '📦' },
     { label: 'Categories', route: '/categories', icon: '🏷️' },
     { label: 'Settings', route: '/settings', icon: '⚙️' },
   ];

@@ -2,19 +2,30 @@ import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
-import { Subject, switchMap, takeUntil, combineLatest, startWith, forkJoin } from 'rxjs';
+import {
+  Subject,
+  switchMap,
+  takeUntil,
+  combineLatest,
+  forkJoin,
+  of,
+} from 'rxjs';
 import { TaskService } from '../../../core/services/task.service';
 import { CategoryService } from '../../../core/services/category.service';
 import { TaskFilterService } from '../../../core/services/task-filter.service';
 import { ToastService } from '../../../core/services/toast.service';
 import { UiShortcutService } from '../../../core/services/ui-shortcut.service';
+import { ReminderService } from '../../../core/services/reminder.service';
+import { SubtaskService } from '../../../core/services/subtask.service';
 import {
   Category,
   CreateTaskInput,
   Task,
   TaskConnection,
   TaskFilterInput,
+  TaskFormSubmit,
   TaskListView,
+  TaskStatus,
   UpdateTaskInput,
 } from '../../../core/models/app.models';
 import { TaskCardComponent } from '../../../shared/components/task-card/task-card.component';
@@ -45,12 +56,19 @@ import { snapshotFromTask, snapshotToCreateInput, TaskSnapshot } from '../../../
           <p class="eyebrow">Tasks</p>
           <h1>{{ pageTitle }}</h1>
         </div>
-        <button type="button" class="btn btn--primary" (click)="openCreateForm()">
+        <button
+          type="button"
+          class="btn btn--primary"
+          (click)="openCreateForm()"
+          [hidden]="view === 'ARCHIVED'"
+        >
           + Add Task
         </button>
       </header>
 
-      <app-quick-add [categories]="categories" (created)="reload()" />
+      @if (view !== 'ARCHIVED') {
+        <app-quick-add [categories]="categories" (created)="reload()" />
+      }
 
       <div class="filters">
         <select [(ngModel)]="selectedPriority" (ngModelChange)="applyFilters()" aria-label="Filter by priority">
@@ -117,20 +135,36 @@ import { snapshotFromTask, snapshotToCreateInput, TaskSnapshot } from '../../../
           [icon]="emptyIcon"
           [title]="emptyTitle"
           [message]="emptyMessage"
-          [actionLabel]="'Add task'"
+          [actionLabel]="view === 'ARCHIVED' ? '' : 'Add task'"
           (action)="openCreateForm()"
         />
       } @else {
+        @if (highlightedTask) {
+          <div class="panel panel--highlight">
+            <p class="eyebrow">From Notification</p>
+            <app-task-card
+              [task]="highlightedTask"
+              [highlighted]="true"
+              (statusChange)="changeStatus(highlightedTask, $event)"
+              (edit)="editTask($event)"
+              (archive)="confirmArchive($event)"
+              (restore)="restoreTask($event)"
+              (remove)="confirmDelete($event)"
+            />
+          </div>
+        }
         <div class="task-list">
           @for (task of tasks; track task.id) {
             <app-task-card
               [task]="task"
               [selectable]="true"
               [selected]="selectedIds.has(task.id)"
+              [highlighted]="task.id === highlightedTaskId"
               (selectedChange)="toggleSelection(task.id, $event)"
-              (toggleComplete)="toggleComplete($event)"
+              (statusChange)="changeStatus(task, $event)"
               (edit)="editTask($event)"
-              (archive)="archiveTask($event)"
+              (archive)="confirmArchive($event)"
+              (restore)="restoreTask($event)"
               (remove)="confirmDelete($event)"
             />
           }
@@ -153,9 +187,18 @@ import { snapshotFromTask, snapshotToCreateInput, TaskSnapshot } from '../../../
       }
 
       <app-confirm-dialog
+        [open]="!!taskToArchive"
+        title="Archive task?"
+        message="This task will be removed from active task lists but can be restored later."
+        confirmLabel="Archive"
+        confirmTone="primary"
+        (confirmed)="archiveTask()"
+        (cancelled)="taskToArchive = null"
+      />
+      <app-confirm-dialog
         [open]="!!taskToDelete"
-        title="Delete task"
-        message="This action cannot be undone."
+        title="Delete task?"
+        message="This action permanently removes the task."
         confirmLabel="Delete"
         (confirmed)="deleteTask()"
         (cancelled)="taskToDelete = null"
@@ -221,6 +264,9 @@ import { snapshotFromTask, snapshotToCreateInput, TaskSnapshot } from '../../../
         padding: 1.25rem;
         margin-bottom: 1rem;
       }
+      .panel--highlight {
+        border-color: var(--primary);
+      }
       .task-list {
         display: flex;
         flex-direction: column;
@@ -247,6 +293,8 @@ export class TasksPageComponent implements OnInit, OnDestroy {
   private readonly taskFilterService = inject(TaskFilterService);
   private readonly toastService = inject(ToastService);
   private readonly shortcuts = inject(UiShortcutService);
+  private readonly reminderService = inject(ReminderService);
+  private readonly subtaskService = inject(SubtaskService);
   private readonly destroy$ = new Subject<void>();
 
   view: TaskListView = 'ALL';
@@ -257,12 +305,15 @@ export class TasksPageComponent implements OnInit, OnDestroy {
   submitting = false;
   editingTask: Task | null = null;
   taskToDelete: Task | null = null;
+  taskToArchive: Task | null = null;
   selectedIds = new Set<string>();
   page = 1;
   totalPages = 1;
   selectedPriority = '';
   selectedCategoryId = '';
   sortBy = 'CREATED_AT';
+  highlightedTaskId: string | null = null;
+  highlightedTask: Task | null = null;
 
   pageTitle = 'All Tasks';
   emptyIcon = '✨';
@@ -289,9 +340,33 @@ export class TasksPageComponent implements OnInit, OnDestroy {
       this.clearSelection();
     });
 
+    this.route.queryParamMap.pipe(takeUntil(this.destroy$)).subscribe((params) => {
+      const taskId = params.get('taskId');
+      this.highlightedTaskId = taskId;
+
+      if (!taskId) {
+        this.highlightedTask = null;
+        return;
+      }
+
+      this.taskService.getTask(taskId).subscribe({
+        next: (task) => {
+          this.highlightedTask = task;
+          setTimeout(() => {
+            document
+              .querySelector('.task-card--highlighted')
+              ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 50);
+        },
+        error: () => {
+          this.highlightedTask = null;
+        },
+      });
+    });
+
     combineLatest([
       this.route.data,
-      this.taskFilterService.filter$.pipe(startWith({} as TaskFilterInput)),
+      this.taskFilterService.filter$,
     ])
       .pipe(
         takeUntil(this.destroy$),
@@ -316,6 +391,12 @@ export class TasksPageComponent implements OnInit, OnDestroy {
       .subscribe({
         next: (connection: TaskConnection) => {
           this.tasks = connection.items;
+          if (
+            this.highlightedTaskId &&
+            connection.items.some((task) => task.id === this.highlightedTaskId)
+          ) {
+            this.highlightedTask = null;
+          }
           this.page = connection.pageInfo.page;
           this.totalPages = connection.pageInfo.totalPages;
           this.loading = false;
@@ -428,33 +509,53 @@ export class TasksPageComponent implements OnInit, OnDestroy {
     this.editingTask = null;
   }
 
-  saveTask(payload: CreateTaskInput | UpdateTaskInput): void {
+  saveTask(payload: TaskFormSubmit): void {
+    if (this.submitting) {
+      return;
+    }
     this.submitting = true;
     const request = this.editingTask
-      ? this.taskService.updateTask(this.editingTask.id, payload as UpdateTaskInput)
-      : this.taskService.createTask(payload as CreateTaskInput);
+      ? this.taskService.updateTask(
+          this.editingTask.id,
+          payload.input as UpdateTaskInput,
+        )
+      : this.taskService.createTask(payload.input as CreateTaskInput);
 
-    request.subscribe({
-      next: () => {
-        this.toastService.success(
-          this.editingTask ? 'Task updated successfully.' : 'Task created successfully.',
-        );
-        this.submitting = false;
-        this.closeForm();
-        this.reload();
-      },
-      error: () => {
-        this.toastService.error('Unable to save task. Please try again.');
-        this.submitting = false;
-      },
-    });
+    request
+      .pipe(
+        switchMap((task) =>
+          this.syncFollowUpWork(task.id, payload, this.editingTask ? 'edit' : 'create'),
+        ),
+      )
+      .subscribe({
+        next: () => {
+          this.toastService.success(
+            this.editingTask
+              ? 'Task updated successfully.'
+              : 'Task created successfully.',
+          );
+          this.submitting = false;
+          this.closeForm();
+          this.reload();
+        },
+        error: () => {
+          this.toastService.error('Unable to save task. Please try again.');
+          this.submitting = false;
+        },
+      });
   }
 
-  toggleComplete(task: Task): void {
+  changeStatus(task: Task, status: TaskStatus): void {
+    if (status === task.status) {
+      return;
+    }
+
     const request =
-      task.status === 'COMPLETED'
-        ? this.taskService.reopenTask(task.id)
-        : this.taskService.completeTask(task.id);
+      status === 'COMPLETED'
+        ? this.taskService.completeTask(task.id)
+        : task.status === 'COMPLETED' && status === 'TODO'
+          ? this.taskService.reopenTask(task.id)
+          : this.taskService.updateTask(task.id, { status });
 
     request.subscribe({
       next: () => this.reload(),
@@ -462,13 +563,30 @@ export class TasksPageComponent implements OnInit, OnDestroy {
     });
   }
 
-  archiveTask(task: Task): void {
-    this.taskService.archiveTask(task.id).subscribe({
+  confirmArchive(task: Task): void {
+    this.taskToArchive = task;
+  }
+
+  archiveTask(): void {
+    if (!this.taskToArchive) return;
+    const id = this.taskToArchive.id;
+    this.taskService.archiveTask(id).subscribe({
       next: () => {
         this.toastService.success('Task archived.');
+        this.taskToArchive = null;
         this.reload();
       },
       error: () => this.toastService.error('Unable to archive task. Please try again.'),
+    });
+  }
+
+  restoreTask(task: Task): void {
+    this.taskService.restoreTask(task.id).subscribe({
+      next: () => {
+        this.toastService.success('Task restored.');
+        this.reload();
+      },
+      error: () => this.toastService.error('Unable to restore task. Please try again.'),
     });
   }
 
@@ -491,6 +609,32 @@ export class TasksPageComponent implements OnInit, OnDestroy {
     });
   }
 
+  private syncFollowUpWork(
+    taskId: string,
+    payload: TaskFormSubmit,
+    mode: 'create' | 'edit',
+  ) {
+    const deletes = payload.deleteReminderIds.map((id) =>
+      this.reminderService.deleteReminder(id),
+    );
+    const creates = payload.reminderDrafts.map((draft) =>
+      this.reminderService.createReminder({
+        taskId,
+        offsetMinutes: draft.offsetMinutes,
+        localDateTime: draft.localDateTime,
+        channel: draft.channel,
+      }),
+    );
+    const extraSubtasks =
+      mode === 'edit'
+        ? payload.subtaskTitles.map((title) =>
+            this.subtaskService.createSubtask({ taskId, title }),
+          )
+        : [];
+    const operations = [...deletes, ...creates, ...extraSubtasks];
+    return operations.length > 0 ? forkJoin(operations) : of(true);
+  }
+
   private offerUndo(message: string, snapshots: TaskSnapshot[]): void {
     this.toastService.successWithAction(message, 'Undo', () => {
       forkJoin(
@@ -510,20 +654,53 @@ export class TasksPageComponent implements OnInit, OnDestroy {
   }
 
   private setPageMeta(): void {
-    const meta: Record<TaskListView, { title: string; empty: string }> = {
-      ALL: { title: 'All Tasks', empty: 'No tasks found.' },
-      TODAY: { title: 'Today', empty: "You're all caught up 🎉" },
-      UPCOMING: { title: 'Upcoming', empty: 'No upcoming tasks.' },
-      OVERDUE: { title: 'Overdue', empty: 'No overdue tasks.' },
-      COMPLETED: { title: 'Completed', empty: 'No completed tasks yet.' },
-      ARCHIVED: { title: 'Archived', empty: 'No archived tasks.' },
+    const meta: Record<
+      TaskListView,
+      { title: string; emptyTitle: string; emptyMessage: string; icon: string }
+    > = {
+      ALL: {
+        title: 'All Tasks',
+        emptyTitle: 'No tasks found.',
+        emptyMessage: 'Create a task to get started.',
+        icon: '✨',
+      },
+      TODAY: {
+        title: 'Today',
+        emptyTitle: "You're all caught up",
+        emptyMessage: 'No tasks scheduled for today.',
+        icon: '🎉',
+      },
+      UPCOMING: {
+        title: 'Upcoming',
+        emptyTitle: 'No upcoming tasks.',
+        emptyMessage: 'Nothing is due after today.',
+        icon: '✨',
+      },
+      OVERDUE: {
+        title: 'Overdue',
+        emptyTitle: 'No overdue tasks.',
+        emptyMessage: 'You are on top of your deadlines.',
+        icon: '✨',
+      },
+      COMPLETED: {
+        title: 'Completed',
+        emptyTitle: 'No completed tasks yet.',
+        emptyMessage: '',
+        icon: '✨',
+      },
+      ARCHIVED: {
+        title: 'Archived',
+        emptyTitle: 'No archived tasks.',
+        emptyMessage: 'Archived tasks can be restored from this list.',
+        icon: '📦',
+      },
     };
     const current = meta[this.view];
     this.pageTitle = current.title;
-    this.emptyTitle = current.empty;
+    this.emptyTitle = current.emptyTitle;
     this.emptyMessage = this.taskFilterService.current.search
       ? 'No tasks found matching your search.'
-      : current.empty;
-    this.emptyIcon = this.view === 'TODAY' ? '🎉' : '✨';
+      : current.emptyMessage;
+    this.emptyIcon = current.icon;
   }
 }

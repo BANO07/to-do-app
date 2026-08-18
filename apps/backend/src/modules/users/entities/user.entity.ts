@@ -47,6 +47,10 @@ export class User {
   @Column({ name: 'last_login_at', type: 'timestamptz', nullable: true })
   lastLoginAt?: Date | null;
 
+  @Field(() => String)
+  @Column({ name: 'iana_timezone', type: 'varchar', length: 64, default: 'UTC' })
+  ianaTimezone!: string;
+
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive!: boolean;
 

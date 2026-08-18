@@ -1,5 +1,7 @@
 import { InputType, Field, Int } from '@nestjs/graphql';
 import {
+  IsArray,
+  IsBoolean,
   IsEnum,
   IsInt,
   IsOptional,
@@ -14,6 +16,7 @@ import { TaskPriority } from '../../../common/enums/task-priority.enum';
 import { TaskSortField } from '../../../common/enums/task-sort-field.enum';
 import { SortOrder } from '../../../common/enums/sort-order.enum';
 import { TaskListView } from '../../../common/enums/task-list-view.enum';
+import { RecurrenceInput } from './recurrence.inputs';
 
 @InputType()
 export class CreateTaskInput {
@@ -40,6 +43,17 @@ export class CreateTaskInput {
   @IsOptional()
   @IsUUID()
   categoryId?: string;
+
+  @Field(() => RecurrenceInput, { nullable: true })
+  @IsOptional()
+  recurrence?: RecurrenceInput;
+
+  @Field(() => [String], { nullable: true })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(255, { each: true })
+  subtaskTitles?: string[];
 }
 
 @InputType()
@@ -73,6 +87,15 @@ export class UpdateTaskInput {
   @IsOptional()
   @IsUUID()
   categoryId?: string | null;
+
+  @Field(() => RecurrenceInput, { nullable: true })
+  @IsOptional()
+  recurrence?: RecurrenceInput | null;
+
+  @Field(() => Boolean, { nullable: true })
+  @IsOptional()
+  @IsBoolean()
+  stopRecurrence?: boolean;
 }
 
 @InputType()

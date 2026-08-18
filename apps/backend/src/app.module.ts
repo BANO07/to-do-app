@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { join } from 'path';
@@ -15,6 +16,7 @@ import { UsersModule } from './modules/users/users.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -33,7 +35,7 @@ import { HealthController } from './health.controller';
     }),
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,
-      autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
+      autoSchemaFile: join(__dirname, '..', 'src', 'schema.gql'),
       sortSchema: true,
       context: ({ req, res }: { req: Express.Request; res: Express.Response }) => ({
         req,
@@ -47,11 +49,13 @@ import { HealthController } from './health.controller';
         limit: 100,
       },
     ]),
+    ScheduleModule.forRoot(),
     AuthModule,
     UsersModule,
     TasksModule,
     CategoriesModule,
     DashboardModule,
+    NotificationsModule,
   ],
   controllers: [HealthController],
   providers: [

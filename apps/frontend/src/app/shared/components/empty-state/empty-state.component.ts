@@ -9,7 +9,9 @@ import { CommonModule } from '@angular/common';
     <div class="empty-state" role="status">
       <div class="empty-state__icon" aria-hidden="true">{{ icon }}</div>
       <h3>{{ title }}</h3>
-      <p>{{ message }}</p>
+      @if (message) {
+        <p>{{ message }}</p>
+      }
       @if (actionLabel) {
         <button type="button" class="btn btn--primary empty-state__action" (click)="action.emit()">
           {{ actionLabel }}

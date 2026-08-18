@@ -11,7 +11,13 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
         <p>{{ message }}</p>
         <div class="dialog__actions">
           <button type="button" class="btn btn--ghost" (click)="cancelled.emit()">Cancel</button>
-          <button type="button" class="btn btn--danger" (click)="confirmed.emit()">{{ confirmLabel }}</button>
+          <button
+            type="button"
+            [class]="confirmTone === 'danger' ? 'btn btn--danger' : 'btn btn--primary'"
+            (click)="confirmed.emit()"
+          >
+            {{ confirmLabel }}
+          </button>
         </div>
       </div>
     }
@@ -57,6 +63,7 @@ export class ConfirmDialogComponent {
   @Input() title = 'Confirm';
   @Input() message = 'Are you sure?';
   @Input() confirmLabel = 'Confirm';
+  @Input() confirmTone: 'danger' | 'primary' = 'danger';
   @Output() confirmed = new EventEmitter<void>();
   @Output() cancelled = new EventEmitter<void>();
   readonly titleId = 'confirm-dialog-title';

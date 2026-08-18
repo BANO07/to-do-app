@@ -16,7 +16,7 @@ This project is intentionally independent from HRMS/WalkZero systems.
 ```
 Browser (Angular)
     ↓ HTTPS + credentials
-NestJS GraphQL API (/graphql)
+NestJS GraphQL API (/graphql) + auth REST
     ↓
 PostgreSQL
 ```
@@ -35,6 +35,17 @@ Backend → JWT cookie + redirect to frontend dashboard
 Resolver → Service → Repository → TypeORM → PostgreSQL
 ```
 
+Reminder delivery flow:
+
+```
+Reminder (persisted)
+    ↓ scheduler scan (UTC fire_at, sent_at IS NULL)
+NotificationService
+    ├─ IN_APP → notifications table / inbox
+    ├─ EMAIL → EmailProvider
+    └─ PUSH  → PushProvider (VAPID)
+```
+
 ## Security Model
 
 - JWT stored in httpOnly cookie (`access_token`)
@@ -48,10 +59,11 @@ Resolver → Service → Repository → TypeORM → PostgreSQL
 | Module | Responsibility |
 |--------|----------------|
 | auth | Google OAuth, JWT, logout |
-| users | User persistence |
-| tasks | Task CRUD, filtering, pagination |
+| users | User persistence, `updateMyTimezone` |
+| tasks | Task CRUD, filtering, pagination, subtasks, recurrence, reminders |
 | categories | Category CRUD |
-| dashboard | Productivity summary |
+| dashboard | Productivity summary (user-timezone TODAY metrics) |
+| notifications | Notification inbox, preferences, push subscriptions, reminder scheduler, email/push delivery |
 
 ## Database
 
@@ -60,3 +72,12 @@ See [database.md](./database.md).
 ## Deployment
 
 See [deployment.md](./deployment.md).
+
+## Phase C Notes
+
+- `Reminder.channel` remains a single selected delivery channel. Preferences do not fan one reminder out to multiple channels.
+- `Reminder.sentAt` remains `null` until the selected channel succeeds.
+- Scheduler comparisons stay in UTC because `reminders.fire_at` is stored as UTC.
+- User IANA timezone is used only when rendering human-readable notification text.
+- Idempotency is database-backed via reminder row locking plus a unique `notifications.idempotency_key`.
+- Render free instances can sleep, so the in-process scheduler is best-effort and cannot guarantee exact-on-time delivery while the service is suspended.

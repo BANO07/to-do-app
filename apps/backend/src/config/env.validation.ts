@@ -30,6 +30,22 @@ export const validateEnv = (config: Record<string, unknown>) => {
     JWT_EXPIRES_IN: String(config.JWT_EXPIRES_IN ?? '7d'),
     FRONTEND_URL: String(config.FRONTEND_URL),
     BACKEND_URL: String(config.BACKEND_URL),
+    EMAIL_PROVIDER: config.EMAIL_PROVIDER
+      ? String(config.EMAIL_PROVIDER)
+      : undefined,
+    EMAIL_FROM: config.EMAIL_FROM ? String(config.EMAIL_FROM) : undefined,
+    EMAIL_API_KEY: config.EMAIL_API_KEY
+      ? String(config.EMAIL_API_KEY)
+      : undefined,
+    PUSH_VAPID_PUBLIC_KEY: config.PUSH_VAPID_PUBLIC_KEY
+      ? String(config.PUSH_VAPID_PUBLIC_KEY)
+      : undefined,
+    PUSH_VAPID_PRIVATE_KEY: config.PUSH_VAPID_PRIVATE_KEY
+      ? String(config.PUSH_VAPID_PRIVATE_KEY)
+      : undefined,
+    PUSH_VAPID_SUBJECT: config.PUSH_VAPID_SUBJECT
+      ? String(config.PUSH_VAPID_SUBJECT)
+      : undefined,
   };
 };
 

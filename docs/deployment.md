@@ -174,6 +174,12 @@ JWT_SECRET=<48+ char random string>
 JWT_EXPIRES_IN=7d
 FRONTEND_URL=https://YOUR-APP.vercel.app
 BACKEND_URL=https://YOUR-BACKEND.onrender.com
+EMAIL_PROVIDER=noop|resend
+EMAIL_FROM=notifications@your-domain.example
+EMAIL_API_KEY=
+PUSH_VAPID_PUBLIC_KEY=
+PUSH_VAPID_PRIVATE_KEY=
+PUSH_VAPID_SUBJECT=mailto:you@example.com
 ```
 
 Render sets `PORT` automatically — do not hardcode.
@@ -192,6 +198,9 @@ No build-time env vars required. `apps/frontend/vercel.json` rewrites `/api/:pat
 | CORS error after login | `FRONTEND_URL` on Render must exactly match Vercel URL (no trailing slash) |
 | Session lost / `me` returns 401 after Google login | Confirm the browser calls `/api/graphql` (same origin), not Render directly. Cookie must be host-only on the Vercel domain (`SameSite=Lax; Secure`). Set `GOOGLE_CALLBACK_URL` to `https://YOUR-APP.vercel.app/api/auth/google/callback` and add the same URI in Google Cloud Console. Confirm `FRONTEND_URL` has **no trailing slash**. |
 | 502 on first request | Render free tier waking up — wait 30–60s |
+| Reminder arrived late or not at all after idle time | Render free instances sleep, so the in-process scheduler cannot fire while the service is suspended |
+| Push cannot be enabled | Confirm `PUSH_VAPID_*` env vars are set on Render and the browser granted notification permission |
+| Email reminders stay failed | Confirm `EMAIL_PROVIDER=resend`, `EMAIL_FROM`, and `EMAIL_API_KEY` are configured |
 | DB connection failed | Use Neon pooled URL with `?sslmode=require` |
 | Build fails on Vercel | Check `vercel.json` rewrite destination matches your Render URL |
 
@@ -212,6 +221,18 @@ No build-time env vars required. `apps/frontend/vercel.json` rewrites `/api/:pat
 | `render.yaml` | Render Blueprint for backend |
 | `apps/frontend/vercel.json` | SPA routing + `/api/*` proxy to Render |
 | `apps/frontend/scripts/set-env.js` | Writes same-origin `/api` production environment |
+| `apps/frontend/public/push-sw.js` | Minimal service worker for web push notification clicks |
+
+---
+
+## Phase C Notification Delivery
+
+- Reminder scheduler runs inside the NestJS backend process and scans due reminders in UTC.
+- `Reminder.channel` is the single selected delivery channel.
+- Notification preferences are enablement gates only; they do not fan one reminder out to additional channels.
+- `Reminder.sent_at` is set only after the selected channel succeeds.
+- Email and push failures remain retryable because `sent_at` stays null until success.
+- In-app notifications are persisted in the `notifications` table and shown from the topbar notification panel.
 
 Local production build test:
 

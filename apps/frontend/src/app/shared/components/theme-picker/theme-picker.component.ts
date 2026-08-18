@@ -63,29 +63,41 @@ import {
       <div class="theme-picker__section">
         @if (!compact) {
           <span class="theme-picker__label">Mode</span>
+          <div class="theme-picker__modes" role="radiogroup" aria-label="Light or dark mode">
+            <button
+              type="button"
+              class="mode-chip"
+              role="radio"
+              [attr.aria-checked]="themeService.current === 'light'"
+              [class.mode-chip--active]="themeService.current === 'light'"
+              (click)="selectMode('light')"
+            >
+              ☀️ Light
+            </button>
+            <button
+              type="button"
+              class="mode-chip"
+              role="radio"
+              [attr.aria-checked]="themeService.current === 'dark'"
+              [class.mode-chip--active]="themeService.current === 'dark'"
+              (click)="selectMode('dark')"
+            >
+              🌙 Dark
+            </button>
+          </div>
+        } @else {
+          <button
+            type="button"
+            class="mode-chip mode-chip--active"
+            (click)="toggleMode()"
+            [attr.aria-label]="
+              themeService.current === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'
+            "
+            [title]="themeService.current === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+          >
+            {{ themeService.current === 'dark' ? '🌙 Dark' : '☀️ Light' }}
+          </button>
         }
-        <div class="theme-picker__modes" role="radiogroup" aria-label="Light or dark mode">
-          <button
-            type="button"
-            class="mode-chip"
-            role="radio"
-            [attr.aria-checked]="themeService.current === 'light'"
-            [class.mode-chip--active]="themeService.current === 'light'"
-            (click)="selectMode('light')"
-          >
-            ☀️ Light
-          </button>
-          <button
-            type="button"
-            class="mode-chip"
-            role="radio"
-            [attr.aria-checked]="themeService.current === 'dark'"
-            [class.mode-chip--active]="themeService.current === 'dark'"
-            (click)="selectMode('dark')"
-          >
-            🌙 Dark
-          </button>
-        </div>
       </div>
 
       @if (compact) {
@@ -299,6 +311,10 @@ export class ThemePickerComponent {
 
   selectMode(mode: ThemeMode): void {
     this.themeService.setTheme(mode);
+  }
+
+  toggleMode(): void {
+    this.themeService.toggle();
   }
 
   selectPalette(palette: ThemePalette): void {

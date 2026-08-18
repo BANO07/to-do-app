@@ -39,6 +39,7 @@ export class UsersRepository {
         name: profile.name,
         avatarUrl: profile.avatarUrl,
         isActive: true,
+        ianaTimezone: 'UTC',
       });
     } else {
       user.email = profile.email;
@@ -47,6 +48,10 @@ export class UsersRepository {
     }
 
     user.lastLoginAt = new Date();
+    return this.repository.save(user);
+  }
+
+  save(user: User): Promise<User> {
     return this.repository.save(user);
   }
 }

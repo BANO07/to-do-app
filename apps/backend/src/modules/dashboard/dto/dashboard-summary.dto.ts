@@ -9,6 +9,12 @@ export class DashboardSummary {
   todayCompleted!: number;
 
   @Field(() => Int)
+  todayOpen!: number;
+
+  @Field(() => Int)
+  todayInProgress!: number;
+
+  @Field(() => Int)
   todayPending!: number;
 
   @Field(() => Int)

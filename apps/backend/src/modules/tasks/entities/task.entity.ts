@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
+  OneToMany,
   JoinColumn,
   Index,
 } from 'typeorm';
@@ -13,6 +14,10 @@ import { User } from '../../users/entities/user.entity';
 import { Category } from '../../categories/entities/category.entity';
 import { TaskStatus } from '../../../common/enums/task-status.enum';
 import { TaskPriority } from '../../../common/enums/task-priority.enum';
+import { Subtask } from './subtask.entity';
+import { Reminder } from './reminder.entity';
+import { RecurrenceRule } from './recurrence-rule.entity';
+import { TaskProgress } from '../dto/task-progress.dto';
 
 @ObjectType()
 @Entity('tasks')
@@ -55,6 +60,14 @@ export class Task {
   @Column({ name: 'category_id', type: 'uuid', nullable: true })
   categoryId?: string | null;
 
+  @Field(() => ID, { nullable: true })
+  @Column({ name: 'series_id', type: 'uuid', nullable: true })
+  seriesId?: string | null;
+
+  @Field(() => String, { nullable: true })
+  @Column({ name: 'occurrence_date', type: 'date', nullable: true })
+  occurrenceDate?: string | null;
+
   @Field(() => Date)
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
@@ -74,4 +87,16 @@ export class Task {
   })
   @JoinColumn({ name: 'category_id' })
   category?: Category | null;
+
+  @OneToMany(() => Subtask, (subtask) => subtask.task)
+  subtasks?: Subtask[];
+
+  @OneToMany(() => Reminder, (reminder) => reminder.task)
+  reminders?: Reminder[];
+
+  @Field(() => TaskProgress)
+  progress!: TaskProgress;
+
+  @Field(() => RecurrenceRule, { nullable: true })
+  recurrence?: RecurrenceRule | null;
 }

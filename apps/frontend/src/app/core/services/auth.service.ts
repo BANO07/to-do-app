@@ -4,7 +4,7 @@ import { BehaviorSubject, Observable, tap, catchError, of, map } from 'rxjs';
 import { Apollo, gql } from 'apollo-angular';
 import { environment } from '../../../environments/environment';
 import { User } from '../models/app.models';
-import { ME_QUERY } from '../graphql/operations';
+import { ME_QUERY, UPDATE_MY_TIMEZONE_MUTATION } from '../graphql/operations';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -36,6 +36,25 @@ export class AuthService {
         catchError(() => {
           this.currentUserSubject.next(null);
           return of(null);
+        }),
+      );
+  }
+
+  updateTimezone(timezone: string): Observable<User> {
+    return this.apollo
+      .mutate<{ updateMyTimezone: User }>({
+        mutation: UPDATE_MY_TIMEZONE_MUTATION,
+        variables: { timezone },
+      })
+      .pipe(
+        map(({ data }) => {
+          const updated = data!.updateMyTimezone;
+          const current = this.currentUserSubject.value;
+          const next = current
+            ? { ...current, ianaTimezone: updated.ianaTimezone }
+            : updated;
+          this.currentUserSubject.next(next);
+          return next;
         }),
       );
   }
