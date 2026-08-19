@@ -469,7 +469,7 @@ Rollout order (implementation phases after this audit):
 | A | This document | Audit only | Implemented (document) |
 | B | Advanced tasks | Subtasks, recurrence, reminders (+ user timezone) | **Implemented** |
 | C | Notifications | In-app, prefs, email abstraction, web push, scheduler | **Implemented** |
-| D | AI core | Provider, usage table, rate limits | Not implemented |
+| D | AI core | Provider, usage table, rate limits | **Implemented** |
 | E | AI chat + tools | Conversations, confirmation UI | Not implemented |
 | F | Voice | STT/TTS, locales, same tools | Not implemented |
 | G | Attachments | Storage + AI summarize/extract | Not implemented |
@@ -491,6 +491,26 @@ After each implementation phase: backend `nest build`, `npm test --workspace app
 - `Reminder.sent_at` stays null until the selected channel succeeds; failed `EMAIL` / `PUSH` deliveries remain retryable.
 - Phase C adds an in-process reminder scheduler, notification preferences, push subscriptions, and in-app/email/push delivery audit records.
 
+### Phase D implementation notes
+
+- `ai_usage` tracks accepted AI requests per user per **UTC calendar day** with unique `(user_id, usage_date)`.
+- Daily consumption uses PostgreSQL `INSERT ... ON CONFLICT ... DO UPDATE ... WHERE request_count < limit`.
+- Per-minute AI throttling is in-memory per user (`AI_RATE_LIMIT_PER_MINUTE`, default 10) and is separate from the global GraphQL throttler.
+- Order for future AI invocations: authenticate → per-minute check → atomic daily consume → provider call.
+- Rejected limit checks do not increment `ai_usage`. Provider failures after a slot is accepted still consume the daily slot.
+- `GEMINI_API_KEY` is optional; the app starts without it and `providerConfigured` is false.
+- GraphQL exposes `aiUsage` only in Phase D; chat/conversations/tools remain Phase E+.
+
+### Phase E implementation notes (implemented)
+
+- Tables `ai_conversations` and `ai_messages` store per-user chat history with ownership enforced on every query.
+- GraphQL: `aiConversations`, `aiConversation`, `aiMessages`, `createAiConversation`, `aiChat`, `confirmAiAction`, `deleteAiConversation`, `clearAiConversation`.
+- `aiChat` flow: authenticate → per-minute limit → atomic daily consume (once per user message) → load bounded history → Gemini tool loop (max 5 rounds) → auto-run read tools → pause destructive mutations for confirmation.
+- Fourteen tools call existing domain services (`TasksService`, `CategoriesService`, `DashboardService`, `RemindersService`, `SubtasksService`) — never TypeORM repositories directly.
+- Destructive tools (`deleteTask`, `deleteReminder`) return `pendingConfirmation`; `confirmAiAction` executes a server-stored, user-bound, expiring confirmation token.
+- Model/client `userId` arguments are stripped; ownership always comes from `@CurrentUser()`.
+- Angular AI panel calls backend GraphQL only — never Gemini directly.
+- Conversation titles are derived locally from the first user message (no extra model call).
 
 ---
 

@@ -81,6 +81,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'ai',
+        loadComponent: () =>
+          import('./features/ai/ai-page.component').then(
+            (m) => m.AiPageComponent,
+          ),
+      },
+      {
         path: 'settings',
         loadComponent: () =>
           import('./features/settings/settings-page/settings-page.component').then(

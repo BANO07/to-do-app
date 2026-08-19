@@ -131,7 +131,19 @@ export class NotificationsService {
 
     try {
       const now = new Date();
-      const reminder = await this.reminderDeliveryRepository.findEligibleLockedById(
+      const lockedReminder =
+        await this.reminderDeliveryRepository.findLockedPendingById(
+          queryRunner.manager,
+          reminderId,
+          now,
+        );
+
+      if (!lockedReminder) {
+        await queryRunner.rollbackTransaction();
+        return;
+      }
+
+      const reminder = await this.reminderDeliveryRepository.findEligibleById(
         queryRunner.manager,
         reminderId,
         now,

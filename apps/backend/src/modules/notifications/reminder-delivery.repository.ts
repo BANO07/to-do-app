@@ -25,7 +25,23 @@ export class ReminderDeliveryRepository {
       .getMany();
   }
 
-  findEligibleLockedById(
+  findLockedPendingById(
+    manager: EntityManager,
+    id: string,
+    now: Date,
+  ): Promise<Reminder | null> {
+    return manager
+      .getRepository(Reminder)
+      .createQueryBuilder('reminder')
+      .where('reminder.id = :id', { id })
+      .andWhere('reminder.sent_at IS NULL')
+      .andWhere('reminder.fire_at <= :now', { now })
+      .setLock('pessimistic_write')
+      .setOnLocked('skip_locked')
+      .getOne();
+  }
+
+  findEligibleById(
     manager: EntityManager,
     id: string,
     now: Date,
@@ -35,8 +51,6 @@ export class ReminderDeliveryRepository {
       now,
     )
       .andWhere('reminder.id = :id', { id })
-      .setLock('pessimistic_write')
-      .setOnLocked('skip_locked')
       .getOne();
   }
 

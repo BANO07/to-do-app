@@ -42,8 +42,8 @@ describe('ReminderDeliveryRepository', () => {
     expect(builder.setLock).not.toHaveBeenCalled();
   });
 
-  it('uses a final pessimistic lock for the authoritative processing check', async () => {
-    await reminderDeliveryRepository.findEligibleLockedById(
+  it('locks only the reminder row for the authoritative processing check', async () => {
+    await reminderDeliveryRepository.findLockedPendingById(
       entityManager,
       'rem-1',
       new Date(),
@@ -52,5 +52,21 @@ describe('ReminderDeliveryRepository', () => {
     expect(entityManager.getRepository).toHaveBeenCalledWith(Reminder);
     expect(builder.setLock).toHaveBeenCalledWith('pessimistic_write');
     expect(builder.setOnLocked).toHaveBeenCalledWith('skip_locked');
+    expect(builder.leftJoinAndSelect).not.toHaveBeenCalled();
+    expect(builder.leftJoin).not.toHaveBeenCalled();
+  });
+
+  it('loads reminder relations in a separate eligibility query without locking joined tables', async () => {
+    await reminderDeliveryRepository.findEligibleById(
+      entityManager,
+      'rem-1',
+      new Date(),
+    );
+
+    expect(entityManager.getRepository).toHaveBeenCalledWith(Reminder);
+    expect(builder.leftJoinAndSelect).toHaveBeenCalledWith('reminder.task', 'task');
+    expect(builder.leftJoinAndSelect).toHaveBeenCalledWith('reminder.user', 'user');
+    expect(builder.leftJoin).toHaveBeenCalled();
+    expect(builder.setLock).not.toHaveBeenCalled();
   });
 });

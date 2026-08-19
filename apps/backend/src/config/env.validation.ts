@@ -1,3 +1,27 @@
+const optionalString = (value: unknown): string | undefined => {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    return undefined;
+  }
+  return String(value);
+};
+
+const parsePositiveInt = (
+  value: unknown,
+  key: string,
+  defaultValue: number,
+): number => {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    return defaultValue;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${key} must be a positive integer`);
+  }
+
+  return parsed;
+};
+
 export const validateEnv = (config: Record<string, unknown>) => {
   const required = [
     'DATABASE_URL',
@@ -46,6 +70,19 @@ export const validateEnv = (config: Record<string, unknown>) => {
     PUSH_VAPID_SUBJECT: config.PUSH_VAPID_SUBJECT
       ? String(config.PUSH_VAPID_SUBJECT)
       : undefined,
+    GEMINI_API_KEY: optionalString(config.GEMINI_API_KEY),
+    AI_PROVIDER: optionalString(config.AI_PROVIDER) ?? 'gemini',
+    AI_MODEL: optionalString(config.AI_MODEL),
+    AI_FREE_DAILY_LIMIT: parsePositiveInt(
+      config.AI_FREE_DAILY_LIMIT,
+      'AI_FREE_DAILY_LIMIT',
+      20,
+    ),
+    AI_RATE_LIMIT_PER_MINUTE: parsePositiveInt(
+      config.AI_RATE_LIMIT_PER_MINUTE,
+      'AI_RATE_LIMIT_PER_MINUTE',
+      10,
+    ),
   };
 };
 

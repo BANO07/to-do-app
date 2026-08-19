@@ -31,7 +31,8 @@ describe('NotificationsService', () => {
   };
   const reminderDeliveryRepository = {
     claimDueBatch: jest.fn(),
-    findEligibleLockedById: jest.fn(),
+    findLockedPendingById: jest.fn(),
+    findEligibleById: jest.fn(),
   };
   const inAppChannel = {};
   const emailChannel = {
@@ -169,12 +170,38 @@ describe('NotificationsService', () => {
   });
 
   it('does not process a stale or ineligible reminder after the locked recheck', async () => {
-    reminderDeliveryRepository.findEligibleLockedById.mockResolvedValue(null);
+    reminderDeliveryRepository.findLockedPendingById.mockResolvedValue({
+      id: 'rem-stale',
+    });
+    reminderDeliveryRepository.findEligibleById.mockResolvedValue(null);
 
     await (service as any).processReminder('rem-stale');
 
     expect(queryRunner.manager.getRepository).not.toHaveBeenCalled();
     expect(queryRunner.manager.save).not.toHaveBeenCalled();
+  });
+
+  it('locks the reminder row before the eligibility recheck', async () => {
+    const reminder = buildReminder(ReminderChannel.IN_APP);
+    setupReminderProcessing(
+      queryRunner,
+      reminderDeliveryRepository,
+      reminder,
+      null,
+    );
+
+    await (service as any).processReminder(reminder.id);
+
+    expect(reminderDeliveryRepository.findLockedPendingById).toHaveBeenCalledWith(
+      queryRunner.manager,
+      reminder.id,
+      expect.any(Date),
+    );
+    expect(reminderDeliveryRepository.findEligibleById).toHaveBeenCalledWith(
+      queryRunner.manager,
+      reminder.id,
+      expect.any(Date),
+    );
   });
 
   it('marks failed email delivery as retryable and leaves sentAt null', async () => {
@@ -273,5 +300,10 @@ function setupReminderProcessing(
 
   queryRunner.manager.getRepository.mockReturnValue(notificationRepo);
   queryRunner.manager.save.mockImplementation(async (value: any) => value);
-  reminderDeliveryRepository.findEligibleLockedById.mockResolvedValue(reminder);
+  reminderDeliveryRepository.findLockedPendingById.mockResolvedValue({
+    id: reminder.id,
+    sentAt: reminder.sentAt,
+    fireAt: reminder.fireAt,
+  });
+  reminderDeliveryRepository.findEligibleById.mockResolvedValue(reminder);
 }

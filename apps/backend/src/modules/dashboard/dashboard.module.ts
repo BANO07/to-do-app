@@ -6,5 +6,6 @@ import { TasksModule } from '../tasks/tasks.module';
 @Module({
   imports: [TasksModule],
   providers: [DashboardService, DashboardResolver],
+  exports: [DashboardService],
 })
 export class DashboardModule {}

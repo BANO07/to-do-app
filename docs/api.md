@@ -85,6 +85,43 @@ Task status source of truth is `tasks.status`:
 - Workflow: Open → In Progress → Completed
 - `ARCHIVED` is a separate lifecycle (hidden from active lists; restore returns the task to Open)
 
+### `aiUsage`
+Authenticated AI quota for the current user only. The client must not send `userId`.
+
+Returns:
+- `dailyLimit` — configured free daily cap (`AI_FREE_DAILY_LIMIT`, default 20)
+- `used` — accepted AI requests counted for the current UTC day
+- `remaining` — `dailyLimit - used`, floored at 0
+- `resetAt` — next UTC midnight when the daily counter resets
+- `providerConfigured` — whether the backend Gemini provider is available (never exposes API keys)
+
+Daily usage is stored in UTC calendar days. Rejected limit checks do not increment usage.
+
+Limit errors use GraphQL `extensions.code = AI_LIMIT_REACHED`.
+
+### `aiConversations`
+Lists conversations owned by the current user, newest activity first.
+
+### `aiConversation(id: ID!)`
+Single conversation owned by the current user.
+
+### `aiMessages(conversationId: ID!, limit: Int = 50)`
+Bounded message history for an owned conversation (max 100).
+
+## AI Mutations (Phase E)
+
+| Mutation | Description |
+|----------|-------------|
+| `createAiConversation` | Start a new empty conversation for the current user |
+| `aiChat(input: { conversationId, message })` | Send a user message; runs Gemini with tools. Returns assistant message, tool summaries, optional `pendingConfirmation`, and updated usage |
+| `confirmAiAction(input: { confirmationId })` | Execute a server-stored destructive action after user confirmation |
+| `deleteAiConversation(id)` | Delete an owned conversation and its messages |
+| `clearAiConversation(id)` | Remove messages but keep the conversation row |
+
+`aiChat` consumes one daily AI slot per user message. `confirmAiAction` does not consume another slot.
+
+Destructive tool calls (`deleteTask`, `deleteReminder`) return `pendingConfirmation` instead of executing immediately. Confirmations expire after 15 minutes and are bound to the authenticated user.
+
 ## Mutations
 
 | Mutation | Description |

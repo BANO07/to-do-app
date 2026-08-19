@@ -33,6 +33,6 @@ import { CategoriesModule } from '../categories/categories.module';
     SubtasksResolver,
     RemindersResolver,
   ],
-  exports: [TasksService, TasksRepository],
+  exports: [TasksService, TasksRepository, SubtasksService, RemindersService],
 })
 export class TasksModule {}

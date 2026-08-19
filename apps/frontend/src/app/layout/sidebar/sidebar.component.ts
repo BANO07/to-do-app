@@ -125,6 +125,7 @@ export class SidebarComponent {
     { label: 'Completed', route: '/tasks/completed', icon: '✅' },
     { label: 'Archived', route: '/tasks/archived', icon: '📦' },
     { label: 'Categories', route: '/categories', icon: '🏷️' },
+    { label: 'AI Assistant', route: '/ai', icon: '✨' },
     { label: 'Settings', route: '/settings', icon: '⚙️' },
   ];
 }

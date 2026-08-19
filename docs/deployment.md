@@ -180,6 +180,11 @@ EMAIL_API_KEY=
 PUSH_VAPID_PUBLIC_KEY=
 PUSH_VAPID_PRIVATE_KEY=
 PUSH_VAPID_SUBJECT=mailto:you@example.com
+GEMINI_API_KEY=
+AI_PROVIDER=
+AI_MODEL=
+AI_FREE_DAILY_LIMIT=20
+AI_RATE_LIMIT_PER_MINUTE=10
 ```
 
 Render sets `PORT` automatically — do not hardcode.
@@ -233,6 +238,13 @@ No build-time env vars required. `apps/frontend/vercel.json` rewrites `/api/:pat
 - `Reminder.sent_at` is set only after the selected channel succeeds.
 - Email and push failures remain retryable because `sent_at` stays null until success.
 - In-app notifications are persisted in the `notifications` table and shown from the topbar notification panel.
+
+## Phase E AI Chat
+
+- Requires `GEMINI_API_KEY` on Render for live responses (`providerConfigured=true`).
+- Optional: `AI_MODEL` (default `gemini-2.0-flash`), `AI_FREE_DAILY_LIMIT` (default 20), `AI_RATE_LIMIT_PER_MINUTE` (default 10).
+- Run migrations so `1724300000000-AIConversationsPhaseE.ts` is applied before using chat.
+- Angular uses the topbar ✨ button or `/ai` route; all AI traffic goes through `/api/graphql`.
 
 Local production build test:
 

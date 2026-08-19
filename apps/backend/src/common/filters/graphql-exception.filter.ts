@@ -24,12 +24,19 @@ export class GraphqlExceptionFilter implements GqlExceptionFilter {
           ? response
           : ((response as { message?: string | string[] }).message ??
             'Request failed');
+      const customCode =
+        typeof response === 'object' &&
+        response !== null &&
+        'code' in response &&
+        typeof (response as { code?: unknown }).code === 'string'
+          ? String((response as { code: string }).code)
+          : undefined;
 
       return new GraphQLError(
         Array.isArray(message) ? message.join(', ') : message,
         {
           extensions: {
-            code: exception.getStatus(),
+            code: customCode ?? exception.getStatus(),
           },
         },
       );

@@ -432,3 +432,134 @@ export const DELETE_CATEGORY_MUTATION = gql`
     deleteCategory(id: $id)
   }
 `;
+
+export const AI_USAGE_QUERY = gql`
+  query AiUsage {
+    aiUsage {
+      dailyLimit
+      used
+      remaining
+      resetAt
+      providerConfigured
+    }
+  }
+`;
+
+export const AI_CONVERSATIONS_QUERY = gql`
+  query AiConversations {
+    aiConversations {
+      id
+      title
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const AI_MESSAGES_QUERY = gql`
+  query AiMessages($conversationId: ID!, $limit: Int) {
+    aiMessages(conversationId: $conversationId, limit: $limit) {
+      items {
+        id
+        role
+        content
+        toolName
+        toolCallId
+        toolStatus
+        createdAt
+      }
+      limit
+    }
+  }
+`;
+
+export const CREATE_AI_CONVERSATION_MUTATION = gql`
+  mutation CreateAiConversation {
+    createAiConversation {
+      id
+      title
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const AI_CHAT_MUTATION = gql`
+  mutation AiChat($input: AiChatInput!) {
+    aiChat(input: $input) {
+      conversation {
+        id
+        title
+        createdAt
+        updatedAt
+      }
+      assistantMessage {
+        id
+        role
+        content
+        createdAt
+      }
+      toolCalls {
+        toolName
+        toolCallId
+        summary
+        success
+      }
+      pendingConfirmation {
+        id
+        action
+        title
+        description
+        toolName
+      }
+      completed
+      usage {
+        dailyLimit
+        used
+        remaining
+        resetAt
+        providerConfigured
+      }
+    }
+  }
+`;
+
+export const CONFIRM_AI_ACTION_MUTATION = gql`
+  mutation ConfirmAiAction($input: ConfirmAiActionInput!) {
+    confirmAiAction(input: $input) {
+      conversation {
+        id
+        title
+        updatedAt
+      }
+      assistantMessage {
+        id
+        role
+        content
+        createdAt
+      }
+      toolResult {
+        toolName
+        summary
+        success
+      }
+      completed
+    }
+  }
+`;
+
+export const DELETE_AI_CONVERSATION_MUTATION = gql`
+  mutation DeleteAiConversation($id: ID!) {
+    deleteAiConversation(id: $id)
+  }
+`;
+
+export const CLEAR_AI_CONVERSATION_MUTATION = gql`
+  mutation ClearAiConversation($id: ID!) {
+    clearAiConversation(id: $id) {
+      id
+      title
+      updatedAt
+    }
+  }
+`;

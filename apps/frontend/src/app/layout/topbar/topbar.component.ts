@@ -17,6 +17,7 @@ import { Notification, User } from '../../core/models/app.models';
 import { UserAvatarComponent } from '../../shared/components/user-avatar/user-avatar.component';
 import { ThemePickerComponent } from '../../shared/components/theme-picker/theme-picker.component';
 import { NotificationService } from '../../core/services/notification.service';
+import { AiService } from '../../core/services/ai.service';
 
 @Component({
   selector: 'app-topbar',
@@ -41,6 +42,14 @@ import { NotificationService } from '../../core/services/notification.service';
 
       <div class="topbar__user">
         <app-theme-picker [compact]="true" />
+        <button
+          type="button"
+          class="btn-icon"
+          (click)="openAiPanel()"
+          aria-label="Open AI assistant"
+        >
+          ✨
+        </button>
         <div class="notifications" [class.notifications--open]="notificationsOpen">
           <button
             type="button"
@@ -292,6 +301,7 @@ import { NotificationService } from '../../core/services/notification.service';
 export class TopbarComponent implements OnInit, OnDestroy {
   private readonly authService = inject(AuthService);
   private readonly notificationService = inject(NotificationService);
+  private readonly aiService = inject(AiService);
   private readonly router = inject(Router);
   private searchTimeout?: ReturnType<typeof setTimeout>;
   private readonly destroy$ = new Subject<void>();
@@ -335,6 +345,11 @@ export class TopbarComponent implements OnInit, OnDestroy {
     if (this.notificationsOpen) {
       this.loadNotifications();
     }
+  }
+
+  openAiPanel(): void {
+    this.notificationsOpen = false;
+    this.aiService.openPanel();
   }
 
   loadNotifications(): void {

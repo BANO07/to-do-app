@@ -64,6 +64,23 @@ NotificationService
 | categories | Category CRUD |
 | dashboard | Productivity summary (user-timezone TODAY metrics) |
 | notifications | Notification inbox, preferences, push subscriptions, reminder scheduler, email/push delivery |
+| ai | Gemini provider, conversations, tool calling, confirmation flow, usage limits, `aiUsage` + chat GraphQL |
+
+## AI architecture (Phase E)
+
+```
+Angular AI panel → GraphQL aiChat / confirmAiAction
+    ↓
+AiChatService (auth, limits, tool loop)
+    ↓
+GeminiProvider (function declarations)
+    ↓
+AiToolsService → TasksService / CategoriesService / DashboardService / RemindersService / SubtasksService
+```
+
+- Frontend never calls Gemini or stores API keys.
+- Tool arguments from the model never override `@CurrentUser()` ownership.
+- Message history is paginated/bounded to control token usage.
 
 ## Database
 

@@ -99,6 +99,32 @@ PostgreSQL with TypeORM migrations (`synchronize: false`).
 - `created_at`, `updated_at`
 - indexes (`user_id`, `created_at`), (`user_id`, `read_at`), (`status`, `scheduled_at`), (`reminder_id`), (`task_id`)
 
+### ai_usage
+- `id` UUID PK
+- `user_id` FK → users (CASCADE)
+- `usage_date` date (UTC calendar day)
+- `request_count` integer NOT NULL DEFAULT 0
+- `created_at`, `updated_at`
+- unique (`user_id`, `usage_date`)
+
+### ai_conversations (Phase E)
+- `id` UUID PK
+- `user_id` FK → users (CASCADE)
+- `title` varchar nullable
+- `created_at`, `updated_at`
+- index (`user_id`, `updated_at`)
+
+### ai_messages (Phase E)
+- `id` UUID PK
+- `conversation_id` FK → ai_conversations (CASCADE)
+- `user_id` FK → users (CASCADE) — must match conversation owner
+- `role` enum: `USER`, `ASSISTANT`, `TOOL`
+- `content` text
+- `tool_name`, `tool_call_id`, `tool_status` nullable
+- `metadata` jsonb nullable (internal; not exposed in GraphQL)
+- `created_at`
+- indexes (`conversation_id`, `created_at`), (`user_id`, `created_at`)
+
 ## Indexes
 
 - `users.google_id`, `users.email`
@@ -114,10 +140,13 @@ PostgreSQL with TypeORM migrations (`synchronize: false`).
 - `notification_preferences(user_id)`
 - `push_subscriptions(endpoint)`, `push_subscriptions(user_id, created_at)`
 - `notifications(user_id, created_at)`, `notifications(user_id, read_at)`, `notifications(status, scheduled_at)`, `notifications(reminder_id)`, `notifications(task_id)`, `notifications(idempotency_key)`
+- `ai_usage(user_id, usage_date)`
+- `ai_conversations(user_id, updated_at)`
+- `ai_messages(conversation_id, created_at)`, `ai_messages(user_id, created_at)`
 
 ## Migrations
 
-Do not edit `1723900000000-InitialSchema.ts`. Phase B lives in `1724000000000-AdvancedTasksFoundation.ts`. Phase C lives in `1724100000000-NotificationsPhaseC.ts`.
+Do not edit `1723900000000-InitialSchema.ts`. Phase B lives in `1724000000000-AdvancedTasksFoundation.ts`. Phase C lives in `1724100000000-NotificationsPhaseC.ts`. Phase D lives in `1724200000000-AIFoundation.ts`. Phase E lives in `1724300000000-AIConversationsPhaseE.ts`.
 
 ```bash
 cd apps/backend

@@ -287,6 +287,78 @@ export interface UpdateCategoryInput {
   icon?: string;
 }
 
+export type AiMessageRole = 'USER' | 'ASSISTANT' | 'TOOL';
+
+export interface AiUsageStatus {
+  dailyLimit: number;
+  used: number;
+  remaining: number;
+  resetAt: string;
+  providerConfigured: boolean;
+}
+
+export interface AiConversation {
+  id: string;
+  title?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AiMessage {
+  id: string;
+  role: AiMessageRole;
+  content: string;
+  toolName?: string | null;
+  toolCallId?: string | null;
+  toolStatus?: string | null;
+  createdAt: string;
+}
+
+export interface AiMessagesPage {
+  items: AiMessage[];
+  limit: number;
+}
+
+export interface AiToolCallResult {
+  toolName: string;
+  toolCallId?: string | null;
+  summary: string;
+  success: boolean;
+}
+
+export interface AiPendingConfirmation {
+  id: string;
+  action: string;
+  title: string;
+  description: string;
+  toolName: string;
+}
+
+export interface AiChatResponse {
+  conversation: AiConversation;
+  assistantMessage?: AiMessage | null;
+  toolCalls: AiToolCallResult[];
+  pendingConfirmation?: AiPendingConfirmation | null;
+  completed: boolean;
+  usage?: AiUsageStatus | null;
+}
+
+export interface AiConfirmActionResponse {
+  conversation: AiConversation;
+  assistantMessage?: AiMessage | null;
+  toolResult: AiToolCallResult;
+  completed: boolean;
+}
+
+export interface AiChatInput {
+  conversationId: string;
+  message: string;
+}
+
+export interface ConfirmAiActionInput {
+  confirmationId: string;
+}
+
 export const RECURRENCE_LABELS: Record<RecurrenceFrequency | 'NEVER', string> = {
   NEVER: 'Never',
   DAILY: 'Daily',

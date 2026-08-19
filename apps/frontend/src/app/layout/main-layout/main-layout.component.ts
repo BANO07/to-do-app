@@ -6,11 +6,12 @@ import { TopbarComponent } from '../topbar/topbar.component';
 import { AuthService } from '../../core/services/auth.service';
 import { TaskFilterService } from '../../core/services/task-filter.service';
 import { UiShortcutService } from '../../core/services/ui-shortcut.service';
+import { AiChatPanelComponent } from '../../features/ai/ai-chat-panel.component';
 
 @Component({
   selector: 'app-main-layout',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, SidebarComponent, TopbarComponent],
+  imports: [CommonModule, RouterOutlet, SidebarComponent, TopbarComponent, AiChatPanelComponent],
   template: `
     <div class="layout">
       <app-sidebar
@@ -28,6 +29,7 @@ import { UiShortcutService } from '../../core/services/ui-shortcut.service';
           <router-outlet />
         </main>
       </div>
+      <app-ai-chat-panel />
     </div>
   `,
   styles: [
