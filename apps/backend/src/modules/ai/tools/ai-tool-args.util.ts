@@ -69,3 +69,20 @@ export function optionalEnum<T extends string>(
   }
   return value as T;
 }
+
+export function optionalStringArray(
+  args: Record<string, unknown>,
+  key: string,
+): string[] | undefined {
+  const value = args[key];
+  if (value == null) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new BadRequestException(`${key} must be an array`);
+  }
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}

@@ -122,6 +122,46 @@ Bounded message history for an owned conversation (max 100).
 
 Destructive tool calls (`deleteTask`, `deleteReminder`) return `pendingConfirmation` instead of executing immediately. Confirmations expire after 15 minutes and are bound to the authenticated user.
 
+### AI productivity tools (Phase F)
+
+The model receives sixteen function declarations via `aiChat`. All tools use `@CurrentUser()` ownership — never client-supplied `userId`.
+
+| Tool | Access | Description |
+|------|--------|-------------|
+| `getTasks` | read | List tasks with filters; returns rich snapshots (overdue, dueToday, category, progress, recurrence) |
+| `getTask` | read | Single task with the same rich snapshot |
+| `getCategories` | read | List categories |
+| `getDashboardStats` | read | Today dashboard summary — **completion-rate source of truth** |
+| `getProductivityInsights` | read | Today/week insights: dashboard metrics, category workload, carried-forward overdue, blocking tasks |
+| `planMyDay` | read | Deterministic prioritized plan for today (overdue → high-priority due today → in-progress → other due today → upcoming high-priority) |
+| `getReminders` | read | Reminders for an owned task |
+| `createTask` | write | Create one parent task; supports priority, due date, category, recurrence, `subtaskTitles` |
+| `updateTask` | write | Update owned task fields |
+| `deleteTask` | destructive | Requires confirmation |
+| `completeTask` | write | Complete task (timezone-aware recurrence) |
+| `reopenTask` | write | Reopen completed task |
+| `createSubtask` | write | Add subtask to owned task |
+| `createReminder` | write | Create reminder via `offsetMinutes` or `localDateTime` (user TZ → UTC `fire_at`) |
+| `updateReminder` | write | Update owned reminder |
+| `deleteReminder` | destructive | Requires confirmation |
+
+Natural-language task/reminder requests are mapped by the model into these tools. One explicit create request should produce one `createTask` call.
+
+### Voice AI (Phase G)
+
+Voice does **not** introduce a new GraphQL API.
+
+| Concern | Implementation |
+|---------|----------------|
+| Speech input | Browser `SpeechRecognition` / `webkitSpeechRecognition` |
+| Speech output | Browser `speechSynthesis` |
+| AI request | Existing `aiChat(input: { conversationId, message })` with transcript text |
+| Destructive confirm | Existing `confirmAiAction(input: { confirmationId })` — button only in v1 |
+| Quota | One voice send = one `aiChat` slot; confirmation adds zero slots |
+| Storage | Locale + TTS mute in browser `localStorage` only; no audio persisted |
+
+Unsupported browsers fall back to typed chat with no backend changes.
+
 ## Mutations
 
 | Mutation | Description |

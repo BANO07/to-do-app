@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Subject, takeUntil } from 'rxjs';
 import { AiService } from '../../core/services/ai.service';
 import {
@@ -19,19 +20,33 @@ import {
 } from '../../core/models/app.models';
 import { AiConfirmationCardComponent } from './ai-confirmation-card.component';
 import { UiShortcutService } from '../../core/services/ui-shortcut.service';
+import { VoiceInputService } from './voice/voice-input.service';
+import { VoiceOutputService } from './voice/voice-output.service';
+import { VoicePreferencesService } from './voice/voice-preferences.service';
+import {
+  AI_MESSAGE_MAX_LENGTH,
+  VOICE_LOCALE_OPTIONS,
+  VoiceInputSnapshot,
+  VoiceInputState,
+} from './voice/voice.types';
 
 const STARTER_PROMPTS = [
-  "What's on my plate today?",
-  'What tasks are overdue?',
-  'How is my productivity today?',
-  'Create a task for preparing a presentation',
-  'Plan my tasks for today',
+  'Plan my day',
+  "What's overdue?",
+  'What should I work on first?',
+  'How productive was I this week?',
+  'Create a high priority task to submit the report Friday',
+  'Set a reminder 30 minutes before my meeting',
 ];
+
+const CONFIRMATION_TTS_PROMPT =
+  'Please confirm this action on screen.';
 
 @Component({
   selector: 'app-ai-chat-panel',
   standalone: true,
   imports: [CommonModule, FormsModule, AiConfirmationCardComponent],
+  providers: [VoiceInputService, VoiceOutputService, VoicePreferencesService],
   template: `
     @if (open) {
       <div class="ai-panel-backdrop" (click)="close()" aria-hidden="true"></div>
@@ -44,6 +59,31 @@ const STARTER_PROMPTS = [
             }
           </div>
           <div class="ai-panel__header-actions">
+            @if (voiceInputSupported) {
+              <label class="ai-panel__locale">
+                <span class="sr-only">Voice language</span>
+                <select
+                  [ngModel]="voiceLocale"
+                  (ngModelChange)="onVoiceLocaleChange($event)"
+                  [disabled]="micBusy"
+                >
+                  @for (locale of voiceLocaleOptions; track locale) {
+                    <option [value]="locale">{{ locale }}</option>
+                  }
+                </select>
+              </label>
+            }
+            <button
+              type="button"
+              class="btn-icon"
+              [class.ai-panel__tts--off]="!ttsEnabled"
+              [attr.aria-label]="ttsEnabled ? 'Disable voice responses' : 'Enable voice responses'"
+              [attr.aria-pressed]="ttsEnabled"
+              [disabled]="!voiceOutputSupported"
+              (click)="toggleTts()"
+            >
+              {{ ttsEnabled ? '🔊' : '🔇' }}
+            </button>
             <button type="button" class="btn btn--ghost" (click)="startNewConversation()">
               New chat
             </button>
@@ -52,6 +92,14 @@ const STARTER_PROMPTS = [
             </button>
           </div>
         </header>
+
+        <div
+          class="sr-only"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {{ voiceLiveStatus }}
+        </div>
 
         <div class="ai-panel__body">
           <section class="ai-panel__conversations" aria-label="Conversations">
@@ -108,6 +156,11 @@ const STARTER_PROMPTS = [
                           {{ message.toolStatus === 'success' ? 'Done' : 'Failed' }}
                         </span>
                         <p>{{ formatToolMessage(message) }}</p>
+                      } @else if (message.role === 'ASSISTANT') {
+                        <div
+                          class="ai-panel__message-content"
+                          [innerHTML]="formatAssistantContent(message.content)"
+                        ></div>
                       } @else {
                         <p>{{ message.content }}</p>
                       }
@@ -142,30 +195,77 @@ const STARTER_PROMPTS = [
                 @if (errorMessage) {
                   <p class="ai-panel__state ai-panel__state--error">{{ errorMessage }}</p>
                 }
+                @if (voiceErrorMessage) {
+                  <p class="ai-panel__state ai-panel__state--error">{{ voiceErrorMessage }}</p>
+                }
               </div>
             }
 
             <footer class="ai-panel__composer">
-              <textarea
-                #composer
-                rows="3"
-                placeholder="Ask about your tasks…"
-                [(ngModel)]="draft"
-                [disabled]="sending || confirming || !providerConfigured"
-                (keydown)="onComposerKeydown($event)"
-              ></textarea>
-              <button
-                type="button"
-                class="btn btn--primary"
-                [disabled]="sending || confirming || !draft.trim() || !providerConfigured"
-                (click)="send()"
-              >
-                Send
-              </button>
+              @if (voiceListening || voiceTranscribing) {
+                <div class="ai-panel__voice-status" aria-hidden="true">
+                  @if (voiceListening) {
+                    <span class="ai-panel__voice-indicator ai-panel__voice-indicator--active">🎙 Listening…</span>
+                  }
+                  @if (voiceTranscribing) {
+                    <span class="ai-panel__voice-indicator">Transcribing…</span>
+                  }
+                  @if (voiceSnapshot.transcript.current) {
+                    <p class="ai-panel__voice-preview">"{{ voiceSnapshot.transcript.current }}"</p>
+                  }
+                </div>
+              }
+              @if (ttsSpeaking) {
+                <p class="ai-panel__voice-indicator">🔊 Speaking…</p>
+              }
+              <div class="ai-panel__composer-row">
+                <button
+                  type="button"
+                  class="btn-icon ai-panel__mic"
+                  [class.ai-panel__mic--active]="voiceListening"
+                  [attr.aria-label]="voiceListening ? 'Stop voice input' : 'Start voice input'"
+                  [disabled]="isMicDisabled"
+                  [title]="micTooltip"
+                  (mousedown)="onMicPress($event)"
+                  (mouseup)="onMicRelease($event)"
+                  (mouseleave)="onMicRelease($event)"
+                  (touchstart)="onMicPress($event)"
+                  (touchend)="onMicRelease($event)"
+                  (touchcancel)="onMicRelease($event)"
+                >
+                  🎙
+                </button>
+                <textarea
+                  #composer
+                  rows="3"
+                  placeholder="Ask about your tasks…"
+                  [(ngModel)]="draft"
+                  [disabled]="sending || confirming || !providerConfigured"
+                  (keydown)="onComposerKeydown($event)"
+                ></textarea>
+                <button
+                  type="button"
+                  class="btn btn--primary"
+                  [disabled]="sending || confirming || !draft.trim() || !providerConfigured || draftTooLong"
+                  (click)="send()"
+                >
+                  Send
+                </button>
+              </div>
+              @if (draftTooLong) {
+                <p class="ai-panel__state ai-panel__state--error">
+                  Voice input is too long. Please shorten it before sending.
+                </p>
+              }
             </footer>
             @if (!providerConfigured) {
               <p class="ai-panel__state ai-panel__state--error">
                 AI is not configured on the server.
+              </p>
+            }
+            @if (!voiceInputSupported) {
+              <p class="ai-panel__state">
+                Voice input is not supported in this browser. You can still type your message.
               </p>
             }
           </section>
@@ -211,6 +311,16 @@ const STARTER_PROMPTS = [
         display: flex;
         align-items: center;
         gap: 0.5rem;
+      }
+      .ai-panel__locale select {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.35rem 0.5rem;
+        background: var(--surface-muted);
+        font-size: 0.75rem;
+      }
+      .ai-panel__tts--off {
+        opacity: 0.65;
       }
       .ai-panel__body {
         flex: 1;
@@ -270,6 +380,27 @@ const STARTER_PROMPTS = [
         margin: 0;
         white-space: pre-wrap;
       }
+      .ai-panel__message-content {
+        white-space: normal;
+      }
+      .ai-panel__message-content h4 {
+        margin: 0 0 0.35rem;
+        font-size: 0.95rem;
+      }
+      .ai-panel__message-content ol,
+      .ai-panel__message-content ul {
+        margin: 0.35rem 0 0;
+        padding-left: 1.25rem;
+      }
+      .ai-panel__message-content li + li {
+        margin-top: 0.25rem;
+      }
+      .ai-panel__message-content p {
+        margin: 0.35rem 0 0;
+      }
+      .ai-panel__message-content strong {
+        font-weight: 600;
+      }
       .ai-panel__message--user {
         align-self: flex-end;
         background: var(--primary-soft);
@@ -307,8 +438,13 @@ const STARTER_PROMPTS = [
       .ai-panel__composer {
         border-top: 1px solid var(--border);
         padding: 0.875rem 1.25rem 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .ai-panel__composer-row {
         display: grid;
-        grid-template-columns: 1fr auto;
+        grid-template-columns: auto 1fr auto;
         gap: 0.75rem;
         align-items: end;
       }
@@ -320,6 +456,34 @@ const STARTER_PROMPTS = [
         border-radius: 12px;
         padding: 0.75rem;
         background: var(--surface-muted);
+      }
+      .ai-panel__mic {
+        align-self: end;
+        margin-bottom: 0.35rem;
+      }
+      .ai-panel__mic--active {
+        color: var(--danger);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 35%, transparent);
+      }
+      .ai-panel__voice-status {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+      .ai-panel__voice-indicator {
+        margin: 0;
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+      }
+      .ai-panel__voice-indicator--active {
+        color: var(--danger);
+        font-weight: 600;
+      }
+      .ai-panel__voice-preview {
+        margin: 0;
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+        font-style: italic;
       }
       .ai-panel__empty {
         flex: 1;
@@ -342,6 +506,16 @@ const STARTER_PROMPTS = [
         flex-wrap: wrap;
         gap: 0.5rem;
       }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        border: 0;
+      }
       @media (max-width: 768px) {
         .ai-panel__body {
           grid-template-columns: 1fr;
@@ -356,6 +530,10 @@ const STARTER_PROMPTS = [
 export class AiChatPanelComponent implements OnInit, OnDestroy {
   private readonly aiService = inject(AiService);
   private readonly shortcuts = inject(UiShortcutService);
+  private readonly sanitizer = inject(DomSanitizer);
+  private readonly voiceInput = inject(VoiceInputService);
+  private readonly voiceOutput = inject(VoiceOutputService);
+  private readonly voicePreferences = inject(VoicePreferencesService);
   private readonly destroy$ = new Subject<void>();
 
   @ViewChild('messagesContainer') messagesContainer?: ElementRef<HTMLElement>;
@@ -368,6 +546,8 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
   messagesLoading = false;
   conversationsLoading = false;
   errorMessage = '';
+  voiceErrorMessage = '';
+  voiceLiveStatus = '';
   providerConfigured = true;
   usage: { dailyLimit: number; remaining: number } | null = null;
 
@@ -377,15 +557,79 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
   pendingConfirmation: AiPendingConfirmation | null = null;
   latestToolCalls: AiToolCallResult[] = [];
 
+  voiceSnapshot: VoiceInputSnapshot = this.voiceInput.getSnapshot();
+  voiceLocale = this.voicePreferences.getLocale();
+  ttsEnabled = this.voicePreferences.isTtsEnabled();
+  ttsSpeaking = false;
+  micPressed = false;
+
   readonly starterPrompts = STARTER_PROMPTS;
+  readonly voiceLocaleOptions = VOICE_LOCALE_OPTIONS;
+
+  get voiceInputSupported(): boolean {
+    return this.voiceInput.isSupported();
+  }
+
+  get voiceOutputSupported(): boolean {
+    return this.voiceOutput.isSupported();
+  }
+
+  get voiceListening(): boolean {
+    return this.voiceSnapshot.state === VoiceInputState.Listening;
+  }
+
+  get voiceTranscribing(): boolean {
+    return this.voiceSnapshot.state === VoiceInputState.Transcribing;
+  }
+
+  get micBusy(): boolean {
+    return (
+      this.sending ||
+      this.confirming ||
+      !!this.pendingConfirmation ||
+      this.voiceListening ||
+      this.voiceTranscribing
+    );
+  }
+
+  get isMicDisabled(): boolean {
+    return (
+      !this.voiceInputSupported ||
+      this.sending ||
+      this.confirming ||
+      !!this.pendingConfirmation
+    );
+  }
+
+  get micTooltip(): string {
+    if (!this.voiceInputSupported) {
+      return 'Voice input is not supported in this browser';
+    }
+    if (this.pendingConfirmation) {
+      return 'Confirm or cancel the pending action first';
+    }
+    if (this.sending || this.confirming) {
+      return 'Wait for the assistant to finish';
+    }
+    return this.voiceListening ? 'Release to stop' : 'Hold to speak';
+  }
+
+  get draftTooLong(): boolean {
+    return this.draft.trim().length > AI_MESSAGE_MAX_LENGTH;
+  }
 
   ngOnInit(): void {
+    this.voiceOutput.setEnabled(this.ttsEnabled);
+
     this.aiService.panelOpen$
       .pipe(takeUntil(this.destroy$))
       .subscribe((open) => {
         this.open = open;
         if (open) {
           this.bootstrap();
+        } else {
+          this.voiceInput.cancel();
+          this.voiceOutput.cancel();
         }
       });
 
@@ -396,31 +640,118 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
           this.close();
         }
       });
+
+    this.voiceInput.snapshot$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((snapshot) => {
+        this.voiceSnapshot = snapshot;
+        this.updateVoiceLiveStatus();
+
+        if (snapshot.state === VoiceInputState.Reviewing && snapshot.transcript.current) {
+          this.draft = snapshot.transcript.current;
+          this.voiceErrorMessage = '';
+          this.voiceInput.acknowledgeReview();
+          this.composer?.nativeElement.focus();
+        }
+
+        if (snapshot.error) {
+          this.voiceErrorMessage = snapshot.error.message;
+        }
+      });
+
+    this.voiceOutput.state$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((state) => {
+        this.ttsSpeaking = state.speaking;
+        this.ttsEnabled = state.enabled;
+        this.updateVoiceLiveStatus();
+      });
+
+    this.voicePreferences.preferences$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((preferences) => {
+        this.voiceLocale = preferences.locale;
+      });
   }
 
   ngOnDestroy(): void {
+    this.voiceInput.cancel();
+    this.voiceOutput.cancel();
     this.destroy$.next();
     this.destroy$.complete();
   }
 
   @HostListener('document:keydown', ['$event'])
   onGlobalKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Escape' && this.open) {
-      this.close();
+    if (event.key !== 'Escape' || !this.open) {
+      return;
     }
+
+    if (this.voiceListening || this.voiceTranscribing) {
+      event.preventDefault();
+      this.voiceInput.cancel();
+      return;
+    }
+
+    if (this.ttsSpeaking) {
+      event.preventDefault();
+      this.voiceOutput.cancel();
+      return;
+    }
+
+    this.close();
   }
 
   close(): void {
+    this.voiceInput.cancel();
+    this.voiceOutput.cancel();
     this.aiService.closePanel();
   }
 
   bootstrap(): void {
     this.errorMessage = '';
+    this.voiceErrorMessage = '';
     this.loadUsage();
     this.loadConversations();
     const storedId = this.aiService.getActiveConversationId();
     if (storedId) {
       this.selectConversation(storedId);
+    }
+  }
+
+  toggleTts(): void {
+    this.voiceOutput.setEnabled(!this.voiceOutput.isEnabled());
+  }
+
+  onVoiceLocaleChange(locale: string): void {
+    this.voicePreferences.setLocale(locale);
+    this.voiceInput.setLocale(locale);
+  }
+
+  onMicPress(event: Event): void {
+    event.preventDefault();
+    if (this.isMicDisabled) {
+      return;
+    }
+
+    if (this.ttsSpeaking) {
+      this.voiceOutput.cancel();
+    }
+
+    this.micPressed = true;
+    this.voiceErrorMessage = '';
+    this.voiceInput.start();
+  }
+
+  onMicRelease(event: Event): void {
+    event.preventDefault();
+    if (!this.micPressed) {
+      return;
+    }
+
+    this.micPressed = false;
+    if (this.voiceListening || this.voiceSnapshot.state === VoiceInputState.RequestingMic) {
+      this.voiceInput.stop();
     }
   }
 
@@ -458,6 +789,7 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
     this.aiService.setActiveConversationId(id);
     this.pendingConfirmation = null;
     this.latestToolCalls = [];
+    this.voiceOutput.cancel();
     this.loadMessages(id);
   }
 
@@ -508,7 +840,7 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
 
   send(): void {
     const message = this.draft.trim();
-    if (!message || this.sending) {
+    if (!message || this.sending || this.draftTooLong) {
       return;
     }
 
@@ -536,8 +868,11 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
   private dispatchMessage(conversationId: string, message: string): void {
     this.sending = true;
     this.errorMessage = '';
+    this.voiceErrorMessage = '';
     this.pendingConfirmation = null;
     this.latestToolCalls = [];
+    this.voiceInput.cancel();
+    this.voiceOutput.cancel();
     this.draft = '';
 
     const optimistic: AiMessage = {
@@ -561,6 +896,7 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
         }
         this.latestToolCalls = response.toolCalls ?? [];
         this.pendingConfirmation = response.pendingConfirmation ?? null;
+        this.handleAssistantSpeech(response.pendingConfirmation, response.assistantMessage?.content);
         this.scrollToBottom();
       },
       error: (error) => {
@@ -581,6 +917,7 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
     }
 
     this.confirming = true;
+    this.voiceOutput.cancel();
     this.aiService
       .confirmAction({ confirmationId: this.pendingConfirmation.id })
       .subscribe({
@@ -589,6 +926,7 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
           this.pendingConfirmation = null;
           if (response.assistantMessage) {
             this.messages = [...this.messages, response.assistantMessage];
+            this.handleAssistantSpeech(null, response.assistantMessage.content);
           }
           this.latestToolCalls = [response.toolResult];
           this.scrollToBottom();
@@ -600,6 +938,24 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
       });
   }
 
+  private handleAssistantSpeech(
+    pendingConfirmation: AiPendingConfirmation | null | undefined,
+    assistantContent?: string | null,
+  ): void {
+    if (!this.voiceOutput.isEnabled()) {
+      return;
+    }
+
+    if (pendingConfirmation) {
+      this.voiceOutput.speak(CONFIRMATION_TTS_PROMPT);
+      return;
+    }
+
+    if (assistantContent?.trim()) {
+      this.voiceOutput.speak(assistantContent);
+    }
+  }
+
   formatToolMessage(message: AiMessage): string {
     try {
       const parsed = JSON.parse(message.content) as { summary?: string };
@@ -609,6 +965,67 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
     }
   }
 
+  formatAssistantContent(content: string): SafeHtml {
+    const escaped = content
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    const withHeadings = escaped.replace(
+      /^## (.+)$/gm,
+      '<h4>$1</h4>',
+    );
+
+    const withBold = withHeadings.replace(
+      /\*\*(.+?)\*\*/g,
+      '<strong>$1</strong>',
+    );
+
+    const lines = withBold.split('\n');
+    const htmlParts: string[] = [];
+    let listType: 'ol' | 'ul' | null = null;
+
+    const closeList = () => {
+      if (listType) {
+        htmlParts.push(`</${listType}>`);
+        listType = null;
+      }
+    };
+
+    for (const line of lines) {
+      const numbered = line.match(/^\d+\.\s+(.+)$/);
+      const bulleted = line.match(/^[-*]\s+(.+)$/);
+
+      if (numbered) {
+        if (listType !== 'ol') {
+          closeList();
+          listType = 'ol';
+          htmlParts.push('<ol>');
+        }
+        htmlParts.push(`<li>${numbered[1]}</li>`);
+        continue;
+      }
+
+      if (bulleted) {
+        if (listType !== 'ul') {
+          closeList();
+          listType = 'ul';
+          htmlParts.push('<ul>');
+        }
+        htmlParts.push(`<li>${bulleted[1]}</li>`);
+        continue;
+      }
+
+      closeList();
+      if (line.trim()) {
+        htmlParts.push(`<p>${line}</p>`);
+      }
+    }
+
+    closeList();
+    return this.sanitizer.bypassSecurityTrustHtml(htmlParts.join(''));
+  }
+
   relativeTime(value: string): string {
     const diffMs = new Date(value).getTime() - Date.now();
     const minutes = Math.round(diffMs / 60000);
@@ -616,6 +1033,34 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
       minutes,
       'minute',
     );
+  }
+
+  private updateVoiceLiveStatus(): void {
+    if (this.voiceListening) {
+      this.voiceLiveStatus = 'Listening';
+      return;
+    }
+    if (this.voiceTranscribing) {
+      this.voiceLiveStatus = 'Transcribing';
+      return;
+    }
+    if (this.ttsSpeaking) {
+      this.voiceLiveStatus = 'Speaking';
+      return;
+    }
+    if (this.sending) {
+      this.voiceLiveStatus = 'Waiting for assistant';
+      return;
+    }
+    if (this.pendingConfirmation) {
+      this.voiceLiveStatus = 'Awaiting confirmation';
+      return;
+    }
+    if (this.voiceErrorMessage) {
+      this.voiceLiveStatus = this.voiceErrorMessage;
+      return;
+    }
+    this.voiceLiveStatus = '';
   }
 
   private scrollToBottom(): void {

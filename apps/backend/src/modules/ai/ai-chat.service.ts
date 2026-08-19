@@ -22,18 +22,49 @@ import {
 } from './providers/ai-provider.interface';
 import { sanitizeToolArguments } from './tools/ai-tool-args.util';
 import {
+  formatYmd,
+  normalizeTimeZone,
+} from '../../common/utils/date-time.util';
+import {
   AiProviderException,
   AiProviderUnavailableException,
 } from './exceptions/ai.exceptions';
 
 const MAX_TOOL_ROUNDS = 5;
 
-const SYSTEM_INSTRUCTION = `You are a helpful task management assistant for an authenticated Todo App user.
-Always use the provided tools to retrieve real application data. Never invent tasks, reminders, categories, or stats.
+export function buildSystemInstruction(timeZone: string): string {
+  const tz = normalizeTimeZone(timeZone);
+  const today = formatYmd(new Date(), tz);
+
+  return `You are a helpful productivity intelligence assistant for an authenticated Todo App user.
+The user's IANA timezone is ${tz}. Today's local date is ${today}.
+
+Always use the provided tools to retrieve real application data. Never invent tasks, reminders, categories, stats, or completion percentages.
 Never claim an operation succeeded unless a tool result confirms it.
-When intent is ambiguous, ask a concise clarification question instead of guessing.
-Keep responses concise and friendly.
-Do not ask for or accept a userId — all data belongs to the authenticated user automatically.`;
+When intent is ambiguous about a critical value (title, due date/time, priority), ask a concise clarification instead of guessing.
+Keep responses concise, friendly, and structured with headings or numbered lists when presenting plans or priorities.
+
+Productivity guidance:
+- For "plan my day", "what should I work on first?", or prioritization questions, call planMyDay.
+- For productivity questions (today/this week, completion rate, overdue workload, category workload), call getProductivityInsights or getDashboardStats.
+- getDashboardStats is the source of truth for completion rate and due-today counts. Do not recalculate completion rate yourself.
+- Distinguish: completed today (by completion time), tasks due today (still active), overdue incomplete tasks, and archived/completed work.
+
+Task creation guidance:
+- One explicit create request = one createTask call with optional subtaskTitles and recurrence fields.
+- Map natural language due dates/times to dueDate using the user's timezone.
+- For recurring tasks, set recurrenceFrequency (e.g. DAILY, WEEKLY) and recurrenceInterval when needed.
+
+Reminder guidance:
+- Use createReminder with offsetMinutes for relative reminders, or localDateTime (YYYY-MM-DDTHH:mm in user local time) for absolute times.
+- Reminders persist fire_at as UTC server-side; you provide local times only.
+
+Safety:
+- Read-only tools may run automatically.
+- Non-destructive mutations may run when explicitly requested.
+- deleteTask and deleteReminder always require user confirmation — never claim they succeeded without confirmation.
+Do not ask for or accept userId/ownerId — all data belongs to the authenticated user automatically.`;
+}
 
 @Injectable()
 export class AiChatService {
@@ -99,7 +130,7 @@ export class AiChatService {
       let providerResult;
       try {
         providerResult = await this.aiProvider.generateChat({
-          systemInstruction: SYSTEM_INSTRUCTION,
+          systemInstruction: buildSystemInstruction(timeZone),
           messages: history,
           tools: toolDeclarations,
         });

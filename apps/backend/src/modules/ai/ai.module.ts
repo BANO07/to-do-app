@@ -14,6 +14,7 @@ import { AIConversationService } from './ai-conversation.service';
 import { AiConfirmationService } from './ai-confirmation.service';
 import { AiChatService } from './ai-chat.service';
 import { AiToolsService } from './tools/ai-tools.service';
+import { AiProductivityService } from './productivity/ai-productivity.service';
 import { AiResolver } from './ai.resolver';
 import { GeminiProvider } from './providers/gemini.provider';
 import { UnavailableAiProvider } from './providers/unavailable-ai.provider';
@@ -38,6 +39,7 @@ import { DashboardModule } from '../dashboard/dashboard.module';
     AiConfirmationService,
     AiChatService,
     AiToolsService,
+    AiProductivityService,
     AiResolver,
     GeminiProvider,
     UnavailableAiProvider,

@@ -470,12 +470,12 @@ Rollout order (implementation phases after this audit):
 | B | Advanced tasks | Subtasks, recurrence, reminders (+ user timezone) | **Implemented** |
 | C | Notifications | In-app, prefs, email abstraction, web push, scheduler | **Implemented** |
 | D | AI core | Provider, usage table, rate limits | **Implemented** |
-| E | AI chat + tools | Conversations, confirmation UI | Not implemented |
-| F | Voice | STT/TTS, locales, same tools | Not implemented |
-| G | Attachments | Storage + AI summarize/extract | Not implemented |
-| H | Calendar | OAuth connect, sync, AI planning context | Not implemented |
-| I | Planner / review | Plan My Day, weekly review (real stats) | Not implemented |
-| J | UI / PWA | Kanban, calendar view, SW, dashboard charts | Not implemented |
+| E | AI chat + tools | Conversations, confirmation UI, 16 tools | **Implemented** |
+| F | AI productivity intelligence | planMyDay, insights, NL task/reminder mapping | **Implemented** |
+| G | Voice AI | Browser STT/TTS, push-to-talk, same aiChat pipeline | **Implemented** |
+| H | Attachments | Storage + AI summarize/extract | Not implemented |
+| I | Calendar | OAuth connect, sync, AI planning context | Not implemented |
+| J | Planner / review UI | Kanban, calendar view, SW, dashboard charts | Not implemented |
 | K | Security + observability + tests | Helmet/auth leaks, logging, ownership tests | Not implemented |
 
 After each implementation phase: backend `nest build`, `npm test --workspace apps/backend`, frontend `build:local` (and production `build` when env is present), review migration, review GraphQL schema.
@@ -511,6 +511,32 @@ After each implementation phase: backend `nest build`, `npm test --workspace app
 - Model/client `userId` arguments are stripped; ownership always comes from `@CurrentUser()`.
 - Angular AI panel calls backend GraphQL only — never Gemini directly.
 - Conversation titles are derived locally from the first user message (no extra model call).
+
+### Phase F implementation notes (implemented)
+
+- Upgraded the assistant from task operations to **productivity intelligence** without new database tables or migrations.
+- Added `AiProductivityService` for deterministic day planning and insights aggregation.
+- New read-only tools: `planMyDay`, `getProductivityInsights` (period: `today` | `week`).
+- Enhanced tools: `getTasks` / `getTask` return rich snapshots (overdue, dueToday, category, progress, recurrence); `createTask` supports `recurrenceFrequency`, `recurrenceInterval`, and `subtaskTitles`; `createReminder` documents NL-friendly `localDateTime` / `offsetMinutes`.
+- Sixteen tools total — still routed through domain services only.
+- `getDashboardStats` / `DashboardService.getSummary` remain the completion-rate source of truth; insights reuse that metric.
+- Day planning prioritizes: overdue → high/urgent due today → in-progress due today → other due today → upcoming high-priority.
+- System prompt injects user IANA timezone and today's local date; relative date boundaries are resolved server-side, not by the model alone.
+- Frontend AI panel adds productivity starter prompts and lightweight structured rendering for assistant replies (headings, lists, emphasis).
+- Phase E confirmation and quota semantics unchanged: destructive deletes still require confirmation; `confirmAiAction` does not consume another daily slot.
+
+### Phase G implementation notes (implemented)
+
+- Browser-only voice layer in Angular — **no server STT/TTS**, no audio upload, no new GraphQL mutations, no migrations.
+- Pipeline: push-to-talk microphone → `SpeechRecognition` → editable composer draft → existing `AiService.sendMessage()` → `aiChat` → assistant text → optional `speechSynthesis`.
+- Services: `VoiceInputService`, `VoiceOutputService`, `VoicePreferencesService` under `apps/frontend/src/app/features/ai/voice/`.
+- Locale is configurable BCP-47 (`localStorage`: `todo-app.voice.locale`); controls STT `lang` and TTS voice selection only — no language-specific business logic.
+- TTS mute preference stored in `todo-app.voice.ttsEnabled`.
+- Transcripts are **not** auto-sent; user edits draft and clicks Send (protects quota from mis-hears).
+- Destructive confirmation remains **button-based** via `AiConfirmationCardComponent`; voice does not call `confirmAiAction`.
+- When `pendingConfirmation` is returned, TTS prompts: “Please confirm this action on screen.”
+- Unsupported browsers show a friendly fallback message; typing continues to work.
+- One voice send = one `aiChat` daily slot; `confirmAiAction` still consumes zero additional slots.
 
 ---
 

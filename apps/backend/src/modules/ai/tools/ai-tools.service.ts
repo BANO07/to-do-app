@@ -13,10 +13,14 @@ import {
   AiToolDefinition,
   AiToolExecutionResult,
 } from './ai-tool.types';
+import { AiProductivityService } from '../productivity/ai-productivity.service';
+import { RecurrenceFrequency } from '../../../common/enums/recurrence-frequency.enum';
+import { formatYmd } from '../../../common/utils/date-time.util';
 import {
   optionalEnum,
   optionalNumber,
   optionalString,
+  optionalStringArray,
   requireString,
   sanitizeToolArguments,
 } from './ai-tool-args.util';
@@ -45,6 +49,7 @@ export class AiToolsService {
     private readonly dashboardService: DashboardService,
     private readonly remindersService: RemindersService,
     private readonly subtasksService: SubtasksService,
+    private readonly productivityService: AiProductivityService,
   ) {}
 
   getToolDefinitions(): AiToolDefinition[] {
@@ -53,7 +58,9 @@ export class AiToolsService {
       this.getTaskTool(),
       this.getCategoriesTool(),
       this.getDashboardStatsTool(),
+      this.getProductivityInsightsTool(),
       this.getRemindersTool(),
+      this.planMyDayTool(),
       this.createTaskTool(),
       this.updateTaskTool(),
       this.deleteTaskTool(),
@@ -192,6 +199,28 @@ export class AiToolsService {
       }
       case 'getDashboardStats':
         return 'Loaded your productivity summary.';
+      case 'planMyDay': {
+        if (
+          typeof data === 'object' &&
+          data &&
+          'summary' in data &&
+          typeof (data as { summary: unknown }).summary === 'string'
+        ) {
+          return (data as { summary: string }).summary;
+        }
+        return 'Built your day plan.';
+      }
+      case 'getProductivityInsights': {
+        if (
+          typeof data === 'object' &&
+          data &&
+          'summary' in data &&
+          typeof (data as { summary: unknown }).summary === 'string'
+        ) {
+          return (data as { summary: string }).summary;
+        }
+        return 'Loaded productivity insights.';
+      }
       case 'getReminders': {
         const reminders = Array.isArray(data) ? data : [];
         return reminders.length
@@ -246,11 +275,22 @@ export class AiToolsService {
     }
   }
 
+  private snapshotTask(
+    task: Parameters<AiProductivityService['toTaskSnapshot']>[0],
+    timeZone: string,
+  ) {
+    return this.productivityService.toTaskSnapshot(
+      task,
+      timeZone,
+      formatYmd(new Date(), timeZone),
+    );
+  }
+
   private getTasksTool(): AiToolDefinition {
     return {
       name: 'getTasks',
       description:
-        'List the current user tasks with optional filters such as view, search, status, or priority.',
+        'List the current user tasks with optional filters such as view (TODAY, OVERDUE, UPCOMING), search, status, or priority. Returns structured task details including progress and category.',
       readOnly: true,
       destructive: false,
       requiresConfirmation: false,
@@ -290,7 +330,9 @@ export class AiToolsService {
         );
         return {
           total: connection.pageInfo.total,
-          items: connection.items.map(taskSummary),
+          items: connection.items.map((task) =>
+            this.snapshotTask(task, context.timeZone),
+          ),
         };
       },
     };
@@ -299,7 +341,8 @@ export class AiToolsService {
   private getTaskTool(): AiToolDefinition {
     return {
       name: 'getTask',
-      description: 'Get one task by id for the current user.',
+      description:
+        'Get one task by id for the current user, including progress, category, and recurrence.',
       readOnly: true,
       destructive: false,
       requiresConfirmation: false,
@@ -313,7 +356,7 @@ export class AiToolsService {
           context.userId,
           requireString(args, 'taskId'),
         );
-        return taskSummary(task);
+        return this.snapshotTask(task, context.timeZone);
       },
     };
   }
@@ -341,13 +384,50 @@ export class AiToolsService {
     return {
       name: 'getDashboardStats',
       description:
-        'Get productivity stats such as completion rate, open, in progress, completed, and overdue counts.',
+        'Get today productivity stats: completion rate for tasks due today, open/in-progress/completed due today, overdue count, and tasks completed today by completion time. Use getProductivityInsights for weekly or category-level analysis.',
       readOnly: true,
       destructive: false,
       requiresConfirmation: false,
       parametersJsonSchema: { type: 'object', properties: {} },
       execute: async (context) =>
         this.dashboardService.getSummary(context.userId, context.timeZone),
+    };
+  }
+
+  private getProductivityInsightsTool(): AiToolDefinition {
+    return {
+      name: 'getProductivityInsights',
+      description:
+        'Get productivity intelligence for today or this week, including dashboard metrics, category workload, carried-forward overdue tasks, and blocking work.',
+      readOnly: true,
+      destructive: false,
+      requiresConfirmation: false,
+      parametersJsonSchema: {
+        type: 'object',
+        properties: {
+          period: { type: 'string', enum: ['today', 'week'] },
+        },
+      },
+      execute: async (context, args) =>
+        this.productivityService.getInsights(
+          context.userId,
+          context.timeZone,
+          optionalEnum(args, 'period', ['today', 'week'] as const) ?? 'today',
+        ),
+    };
+  }
+
+  private planMyDayTool(): AiToolDefinition {
+    return {
+      name: 'planMyDay',
+      description:
+        'Build a deterministic prioritized plan for today using overdue work, high-priority due-today tasks, in-progress tasks, and upcoming high-priority items.',
+      readOnly: true,
+      destructive: false,
+      requiresConfirmation: false,
+      parametersJsonSchema: { type: 'object', properties: {} },
+      execute: async (context) =>
+        this.productivityService.planDay(context.userId, context.timeZone),
     };
   }
 
@@ -406,7 +486,8 @@ export class AiToolsService {
   private createTaskTool(): AiToolDefinition {
     return {
       name: 'createTask',
-      description: 'Create a new task for the current user.',
+      description:
+        'Create one parent task for the current user. Supports priority, due date/time, category, recurrence, and initial subtasks. Use one call per explicit create request.',
       readOnly: false,
       destructive: false,
       requiresConfirmation: false,
@@ -419,21 +500,58 @@ export class AiToolsService {
             type: 'string',
             enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'],
           },
-          dueDate: { type: 'string' },
+          dueDate: {
+            type: 'string',
+            description:
+              'ISO datetime or YYYY-MM-DDTHH:mm in the user local timezone',
+          },
           categoryId: { type: 'string' },
+          recurrenceFrequency: {
+            type: 'string',
+            enum: [
+              'DAILY',
+              'WEEKDAYS',
+              'WEEKLY',
+              'BIWEEKLY',
+              'MONTHLY',
+              'YEARLY',
+              'CUSTOM',
+            ],
+          },
+          recurrenceInterval: { type: 'number' },
+          subtaskTitles: {
+            type: 'array',
+            items: { type: 'string' },
+          },
         },
         required: ['title'],
       },
       execute: async (context, args) => {
         const dueDateRaw = optionalString(args, 'dueDate');
-        const task = await this.tasksService.create(context.userId, {
-          title: requireString(args, 'title'),
-          description: optionalString(args, 'description'),
-          priority: optionalEnum(args, 'priority', Object.values(TaskPriority)),
-          dueDate: dueDateRaw ? new Date(dueDateRaw) : undefined,
-          categoryId: optionalString(args, 'categoryId'),
-        });
-        return taskSummary(task);
+        const recurrenceFrequency = optionalEnum(
+          args,
+          'recurrenceFrequency',
+          Object.values(RecurrenceFrequency),
+        );
+        const task = await this.tasksService.create(
+          context.userId,
+          {
+            title: requireString(args, 'title'),
+            description: optionalString(args, 'description'),
+            priority: optionalEnum(args, 'priority', Object.values(TaskPriority)),
+            dueDate: dueDateRaw ? new Date(dueDateRaw) : undefined,
+            categoryId: optionalString(args, 'categoryId'),
+            recurrence: recurrenceFrequency
+              ? {
+                  frequency: recurrenceFrequency,
+                  interval: optionalNumber(args, 'recurrenceInterval') ?? 1,
+                }
+              : undefined,
+            subtaskTitles: optionalStringArray(args, 'subtaskTitles'),
+          },
+          context.timeZone,
+        );
+        return this.snapshotTask(task, context.timeZone);
       },
     };
   }
@@ -520,8 +638,9 @@ export class AiToolsService {
         const task = await this.tasksService.complete(
           context.userId,
           requireString(args, 'taskId'),
+          context.timeZone,
         );
-        return taskSummary(task);
+        return this.snapshotTask(task, context.timeZone);
       },
     };
   }
@@ -584,7 +703,7 @@ export class AiToolsService {
     return {
       name: 'createReminder',
       description:
-        'Create a reminder on an owned task using offsetMinutes or localDateTime.',
+        'Create a reminder on an owned task. Use offsetMinutes for relative reminders before due time, or localDateTime (YYYY-MM-DDTHH:mm) for absolute reminders such as "tomorrow at 9 AM". Channel defaults to IN_APP.',
       readOnly: false,
       destructive: false,
       requiresConfirmation: false,

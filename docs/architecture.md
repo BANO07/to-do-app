@@ -66,21 +66,45 @@ NotificationService
 | notifications | Notification inbox, preferences, push subscriptions, reminder scheduler, email/push delivery |
 | ai | Gemini provider, conversations, tool calling, confirmation flow, usage limits, `aiUsage` + chat GraphQL |
 
-## AI architecture (Phase E)
+## AI architecture (Phase E + F)
 
 ```
 Angular AI panel → GraphQL aiChat / confirmAiAction
     ↓
-AiChatService (auth, limits, tool loop)
+AiChatService (auth, limits, timezone-aware system prompt, tool loop)
     ↓
 GeminiProvider (function declarations)
     ↓
 AiToolsService → TasksService / CategoriesService / DashboardService / RemindersService / SubtasksService
+              └→ AiProductivityService (planMyDay, getProductivityInsights)
 ```
 
 - Frontend never calls Gemini or stores API keys.
 - Tool arguments from the model never override `@CurrentUser()` ownership.
 - Message history is paginated/bounded to control token usage.
+- Phase F adds productivity intelligence tools (`planMyDay`, `getProductivityInsights`) and enriched task snapshots without new database tables.
+- Completion rate always comes from `DashboardService.getSummary`; the AI must not invent alternate formulas.
+
+## Voice architecture (Phase G)
+
+```
+Browser microphone (push-to-talk)
+    ↓
+SpeechRecognition (client-only)
+    ↓
+Editable composer draft
+    ↓
+AiService.sendMessage() → GraphQL aiChat
+    ↓
+Existing backend AI architecture (auth, quota, tools, confirmation)
+    ↓
+Assistant text response
+    ↓
+speechSynthesis (client-only, optional)
+```
+
+- No server-side audio processing in Phase G.
+- Voice is an input/output layer only; security, quota, tool ownership, and destructive confirmation behave exactly like typed chat.
 
 ## Database
 

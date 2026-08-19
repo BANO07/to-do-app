@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AI_PROVIDER } from './ai.tokens';
-import { AiChatService } from './ai-chat.service';
+import { AiChatService, buildSystemInstruction } from './ai-chat.service';
 import { AIService } from './ai.service';
 import { AIUsageService } from './ai-usage.service';
 import { AIConversationService } from './ai-conversation.service';
@@ -131,11 +131,23 @@ describe('AiChatService', () => {
     const response = await service.chat('user-1', 'conv-1', 'hello', 'UTC');
 
     expect(aiUsageService.consumeDailyRequest).toHaveBeenCalledTimes(1);
+    expect(aiProvider.generateChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemInstruction: expect.stringContaining("Today's local date is"),
+      }),
+    );
     expect(conversationService.addMessage).toHaveBeenCalledWith(
       expect.objectContaining({ role: AiMessageRole.USER, content: 'hello' }),
     );
     expect(response.completed).toBe(true);
     expect(response.assistantMessage?.content).toBe('Here are your tasks.');
+  });
+
+  it('includes user timezone in the system instruction', () => {
+    const instruction = buildSystemInstruction('Asia/Kolkata');
+    expect(instruction).toContain('Asia/Kolkata');
+    expect(instruction).toContain('planMyDay');
+    expect(instruction).toContain('getProductivityInsights');
   });
 
   it('executes read tools automatically', async () => {
