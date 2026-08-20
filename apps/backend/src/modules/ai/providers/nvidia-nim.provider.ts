@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   AIProvider,
+  AIProviderCapabilities,
   AIProviderChatMessage,
   AIProviderChatResult,
   AIProviderGenerateChatInput,
@@ -14,7 +15,9 @@ import {
 import {
   AiProviderException,
   AiProviderUnavailableException,
+  AiUnsupportedAttachmentException,
 } from '../exceptions/ai.exceptions';
+import { nvidiaModelSupportsImageInput } from './nvidia-model-capabilities';
 
 const DEFAULT_NVIDIA_BASE_URL = 'https://integrate.api.nvidia.com/v1';
 const DEFAULT_NVIDIA_MODEL = 'openai/gpt-oss-120b';
@@ -82,6 +85,12 @@ export class NvidiaNimProvider implements AIProvider {
     return this.configured;
   }
 
+  getCapabilities(): AIProviderCapabilities {
+    return {
+      imageInput: nvidiaModelSupportsImageInput(this.resolveModel()),
+    };
+  }
+
   async generateText(
     input: AIProviderGenerateTextInput,
   ): Promise<AIProviderResult> {
@@ -100,8 +109,15 @@ export class NvidiaNimProvider implements AIProvider {
       throw new AiProviderUnavailableException();
     }
 
-    const model =
-      this.configService.get<string>('AI_MODEL') ?? DEFAULT_NVIDIA_MODEL;
+    const model = this.resolveModel();
+    if (
+      input.imageParts &&
+      input.imageParts.length > 0 &&
+      !nvidiaModelSupportsImageInput(model)
+    ) {
+      throw new AiUnsupportedAttachmentException();
+    }
+
     const messages = this.toOpenAiMessages(
       input.systemInstruction,
       input.messages,
@@ -290,6 +306,12 @@ export class NvidiaNimProvider implements AIProvider {
         arguments: args,
       };
     });
+  }
+
+  private resolveModel(): string {
+    return (
+      this.configService.get<string>('AI_MODEL')?.trim() || DEFAULT_NVIDIA_MODEL
+    );
   }
 
   private async postChatCompletion(body: {

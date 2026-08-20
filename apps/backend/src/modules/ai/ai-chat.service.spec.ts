@@ -9,7 +9,11 @@ import { AiToolsService } from './tools/ai-tools.service';
 import { AiAttachmentService } from './attachments/ai-attachment.service';
 import { AttachmentContentExtractor } from './attachments/attachment-content-extractor';
 import { AiMessageRole } from '../../common/enums/ai-message-role.enum';
-import { AiProviderUnavailableException } from './exceptions/ai.exceptions';
+import {
+  AiProviderUnavailableException,
+  AiUnsupportedAttachmentException,
+  AI_UNSUPPORTED_IMAGE_MESSAGE,
+} from './exceptions/ai.exceptions';
 import { AiLimitReachedException } from './exceptions/ai.exceptions';
 
 describe('AiChatService', () => {
@@ -370,6 +374,160 @@ describe('AiChatService', () => {
     expect(response.completed).toBe(true);
     expect(response.toolResult.summary).toBe('Task deleted.');
     expect(aiUsageService.consumeDailyRequest).not.toHaveBeenCalled();
+  });
+
+  describe('provider image capability gate', () => {
+    const imageAttachment = {
+      id: 'att-1',
+      mimeType: 'image/png',
+      originalFilename: 'photo.png',
+      sizeBytes: 100,
+      status: 'READY',
+    };
+
+    const makeService = async (capabilities: { imageInput: boolean } | null) => {
+      const provider = {
+        ...aiProvider,
+        getCapabilities:
+          capabilities == null
+            ? undefined
+            : jest.fn().mockReturnValue(capabilities),
+      };
+
+      const mockAttachmentService = {
+        getReadyAttachmentsForConversation: jest
+          .fn()
+          .mockResolvedValue([imageAttachment]),
+        getAttachmentData: jest.fn().mockResolvedValue({
+          data: Buffer.from('img'),
+          mimeType: 'image/png',
+        }),
+      };
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          AiChatService,
+          { provide: AI_PROVIDER, useValue: provider },
+          { provide: AIService, useValue: aiService },
+          { provide: AIUsageService, useValue: aiUsageService },
+          { provide: AIConversationService, useValue: conversationService },
+          { provide: AiConfirmationService, useValue: confirmationService },
+          { provide: AiToolsService, useValue: toolsService },
+          { provide: AiAttachmentService, useValue: mockAttachmentService },
+          {
+            provide: AttachmentContentExtractor,
+            useValue: {
+              extract: jest.fn().mockResolvedValue({
+                text: '',
+                truncated: false,
+                isImage: true,
+                imageBase64: 'aW1n',
+                imageMimeType: 'image/png',
+              }),
+            },
+          },
+        ],
+      }).compile();
+
+      return {
+        svc: module.get(AiChatService),
+        provider,
+        attachmentService: mockAttachmentService,
+      };
+    };
+
+    it('NVIDIA text-only model + image attachment => rejects before provider/API', async () => {
+      const { svc, provider } = await makeService({ imageInput: false });
+
+      await expect(
+        svc.chat('user-1', 'conv-1', 'What is this?', 'UTC'),
+      ).rejects.toThrow(AI_UNSUPPORTED_IMAGE_MESSAGE);
+
+      expect(provider.generateChat).not.toHaveBeenCalled();
+      expect(conversationService.addMessage).not.toHaveBeenCalled();
+      expect(aiUsageService.consumeDailyRequest).not.toHaveBeenCalled();
+    });
+
+    it('NVIDIA text-only model + text + image => rejects before provider/API', async () => {
+      const { svc, provider } = await makeService({ imageInput: false });
+
+      await expect(
+        svc.chat('user-1', 'conv-1', 'Describe this screenshot', 'UTC'),
+      ).rejects.toThrow(AiUnsupportedAttachmentException);
+
+      expect(provider.generateChat).not.toHaveBeenCalled();
+      expect(conversationService.addMessage).not.toHaveBeenCalled();
+    });
+
+    it('NVIDIA text-only model + text only => works', async () => {
+      const provider = {
+        ...aiProvider,
+        getCapabilities: jest.fn().mockReturnValue({ imageInput: false }),
+      };
+      provider.generateChat.mockResolvedValue({ text: 'hello' });
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          AiChatService,
+          { provide: AI_PROVIDER, useValue: provider },
+          { provide: AIService, useValue: aiService },
+          { provide: AIUsageService, useValue: aiUsageService },
+          { provide: AIConversationService, useValue: conversationService },
+          { provide: AiConfirmationService, useValue: confirmationService },
+          { provide: AiToolsService, useValue: toolsService },
+          {
+            provide: AiAttachmentService,
+            useValue: {
+              getReadyAttachmentsForConversation: jest.fn().mockResolvedValue([]),
+              getAttachmentData: jest.fn(),
+            },
+          },
+          {
+            provide: AttachmentContentExtractor,
+            useValue: { extract: jest.fn() },
+          },
+        ],
+      }).compile();
+
+      const svc = module.get(AiChatService);
+      const response = await svc.chat('user-1', 'conv-1', 'Plan my day', 'UTC');
+
+      expect(response.assistantMessage?.content).toBe('hello');
+      expect(provider.generateChat).toHaveBeenCalledTimes(1);
+      expect(conversationService.addMessage).toHaveBeenCalled();
+    });
+
+    it('Gemini-style provider (imageInput true) + image => unchanged', async () => {
+      const { svc, provider } = await makeService({ imageInput: true });
+      provider.generateChat.mockResolvedValue({ text: 'I see a cat.' });
+
+      const response = await svc.chat(
+        'user-1',
+        'conv-1',
+        'What is in this image?',
+        'UTC',
+      );
+
+      expect(response.assistantMessage?.content).toBe('I see a cat.');
+      expect(provider.generateChat).toHaveBeenCalled();
+      const call = provider.generateChat.mock.calls[0][0] as {
+        imageParts?: unknown[];
+      };
+      expect(call.imageParts?.length).toBe(1);
+    });
+
+    it('does not delete attachments when rejecting unsupported images', async () => {
+      const { svc, attachmentService } = await makeService({
+        imageInput: false,
+      });
+
+      await expect(
+        svc.chat('user-1', 'conv-1', 'Analyze', 'UTC'),
+      ).rejects.toThrow(AiUnsupportedAttachmentException);
+
+      expect(attachmentService.getAttachmentData).not.toHaveBeenCalled();
+      // No soft-delete path exists on this rejection — inventory untouched.
+    });
   });
 
   describe('multimodal image attachment integration', () => {

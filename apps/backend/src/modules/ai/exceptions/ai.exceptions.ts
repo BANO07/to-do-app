@@ -27,3 +27,21 @@ export class AiProviderException extends HttpException {
     super(message, HttpStatus.BAD_GATEWAY);
   }
 }
+
+export const AI_UNSUPPORTED_ATTACHMENT_CODE = 'AI_UNSUPPORTED_ATTACHMENT';
+
+export const AI_UNSUPPORTED_IMAGE_MESSAGE =
+  "Image analysis isn't supported by the current AI model. Please use text or choose a vision-capable model.";
+
+/** Client error when the active provider/model cannot accept image attachments. */
+export class AiUnsupportedAttachmentException extends HttpException {
+  constructor(message = AI_UNSUPPORTED_IMAGE_MESSAGE) {
+    super(
+      {
+        message,
+        code: AI_UNSUPPORTED_ATTACHMENT_CODE,
+      },
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+}

@@ -4,6 +4,7 @@ import { NvidiaNimProvider } from './nvidia-nim.provider';
 import {
   AiProviderException,
   AiProviderUnavailableException,
+  AiUnsupportedAttachmentException,
 } from '../exceptions/ai.exceptions';
 
 describe('NvidiaNimProvider', () => {
@@ -47,6 +48,60 @@ describe('NvidiaNimProvider', () => {
   it('reports available when NVIDIA_API_KEY is present', async () => {
     provider = await buildModule({ NVIDIA_API_KEY: 'nvapi-test-key' });
     expect(provider.isAvailable()).toBe(true);
+  });
+
+  it('reports imageInput=false for openai/gpt-oss-120b', async () => {
+    provider = await buildModule({
+      NVIDIA_API_KEY: 'nvapi-test-key',
+      AI_MODEL: 'openai/gpt-oss-120b',
+    });
+    expect(provider.getCapabilities()).toEqual({ imageInput: false });
+  });
+
+  it('rejects imageParts for gpt-oss-120b without calling NVIDIA API', async () => {
+    provider = await buildModule({
+      NVIDIA_API_KEY: 'nvapi-test-key',
+      AI_MODEL: 'openai/gpt-oss-120b',
+    });
+
+    await expect(
+      provider.generateChat({
+        systemInstruction: 'You are helpful.',
+        messages: [{ role: 'user', content: 'What is in this image?' }],
+        tools: [],
+        imageParts: [
+          { base64: 'abc', mimeType: 'image/png', filename: 'photo.png' },
+        ],
+      }),
+    ).rejects.toThrow(AiUnsupportedAttachmentException);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('allows text-only chat for gpt-oss-120b', async () => {
+    provider = await buildModule({
+      NVIDIA_API_KEY: 'nvapi-test-key',
+      AI_MODEL: 'openai/gpt-oss-120b',
+    });
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          id: 'req-1',
+          choices: [{ message: { content: 'ok' } }],
+        }),
+    });
+
+    const result = await provider.generateChat({
+      systemInstruction: 'You are helpful.',
+      messages: [{ role: 'user', content: 'Hello' }],
+      tools: [],
+    });
+
+    expect(result.text).toBe('ok');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('uses AI_MODEL and NVIDIA_BASE_URL when generating chat', async () => {

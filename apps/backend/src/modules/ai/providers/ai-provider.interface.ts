@@ -48,8 +48,19 @@ export interface AIProviderChatResult {
   toolCalls?: AIProviderToolCall[];
 }
 
+/** Provider/model input capabilities (extensible). */
+export interface AIProviderCapabilities {
+  /** Whether multimodal image parts may be sent with chat requests. */
+  imageInput: boolean;
+}
+
 export interface AIProvider {
   isAvailable(): boolean;
   generateText(input: AIProviderGenerateTextInput): Promise<AIProviderResult>;
   generateChat(input: AIProviderGenerateChatInput): Promise<AIProviderChatResult>;
+  /**
+   * Optional capability probe. When omitted, callers treat image input as
+   * supported (Gemini / legacy mocks). NVIDIA implements this per AI_MODEL.
+   */
+  getCapabilities?(): AIProviderCapabilities;
 }

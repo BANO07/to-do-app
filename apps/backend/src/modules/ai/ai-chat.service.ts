@@ -31,6 +31,7 @@ import {
 import {
   AiProviderException,
   AiProviderUnavailableException,
+  AiUnsupportedAttachmentException,
 } from './exceptions/ai.exceptions';
 
 const MAX_TOOL_ROUNDS = 5;
@@ -125,6 +126,10 @@ export class AiChatService {
       );
     }
 
+    // Provider/model capability gate — before persisting the user message,
+    // consuming quota, or calling the remote API.
+    this.assertImageAttachmentsSupported(readyAttachments);
+
     // Persist a readable user bubble for attachment-only turns so history
     // and providers always have a non-empty user message.
     const userContent =
@@ -190,7 +195,8 @@ export class AiChatService {
       } catch (error) {
         if (
           error instanceof AiProviderUnavailableException ||
-          error instanceof AiProviderException
+          error instanceof AiProviderException ||
+          error instanceof AiUnsupportedAttachmentException
         ) {
           throw error;
         }
@@ -350,6 +356,21 @@ export class AiChatService {
       },
       completed: result.success,
     };
+  }
+
+  private assertImageAttachmentsSupported(attachments: AiAttachment[]): void {
+    const hasImage = attachments.some((attachment) =>
+      (attachment.mimeType ?? '').toLowerCase().startsWith('image/'),
+    );
+    if (!hasImage) {
+      return;
+    }
+
+    const capabilities = this.aiProvider.getCapabilities?.();
+    // Missing getCapabilities ⇒ treat as image-capable (Gemini / legacy mocks).
+    if (capabilities && !capabilities.imageInput) {
+      throw new AiUnsupportedAttachmentException();
+    }
   }
 
   private async buildAttachmentContext(

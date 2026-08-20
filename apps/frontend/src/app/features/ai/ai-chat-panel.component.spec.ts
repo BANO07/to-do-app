@@ -320,6 +320,30 @@ describe('AiChatPanelComponent', () => {
       expect(aiService.deleteAttachment).not.toHaveBeenCalled();
     });
 
+    it('C1b: unsupported image model error restores attachment and draft', () => {
+      const unsupported =
+        "Image analysis isn't supported by the current AI model. Please use text or choose a vision-capable model.";
+      aiService.sendMessage.and.returnValue(
+        throwError(() => ({
+          graphQLErrors: [{ message: unsupported }],
+        })),
+      );
+      aiService.getMessages.and.returnValue(of({ items: [], limit: 50 }));
+      component.providerConfigured = true;
+      component.activeConversationId = 'conv-1';
+      component.draft = 'What is this?';
+      component.composerAttachments = [readyAttachment()];
+
+      component.send();
+
+      expect(component.errorMessage).toBe(unsupported);
+      expect(component.composerAttachments.length).toBe(1);
+      expect(component.composerAttachments[0].id).toBe('att-1');
+      expect(component.draft).toBe('What is this?');
+      expect(aiService.deleteAttachment).not.toHaveBeenCalled();
+      expect(component.sending).toBeFalse();
+    });
+
     it('C2: AI failure after message persist does NOT restore attachment', () => {
       const outgoing = 'Analyze this\n\n📎 Single.png';
       aiService.sendMessage.and.returnValue(

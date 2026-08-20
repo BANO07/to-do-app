@@ -17,6 +17,7 @@ import {
   AIProviderGenerateTextInput,
   AIProviderImagePart,
   AIProviderResult,
+  AIProviderCapabilities,
 } from './ai-provider.interface';
 import {
   AiProviderException,
@@ -39,6 +40,11 @@ export class GeminiProvider implements AIProvider {
 
   isAvailable(): boolean {
     return this.configured;
+  }
+
+  getCapabilities(): AIProviderCapabilities {
+    // Gemini multimodal chat accepts inline image parts.
+    return { imageInput: true };
   }
 
   async generateText(
