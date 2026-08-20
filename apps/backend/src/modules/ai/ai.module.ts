@@ -18,6 +18,7 @@ import { AiToolsService } from './tools/ai-tools.service';
 import { AiProductivityService } from './productivity/ai-productivity.service';
 import { AiResolver } from './ai.resolver';
 import { GeminiProvider } from './providers/gemini.provider';
+import { NvidiaNimProvider } from './providers/nvidia-nim.provider';
 import { UnavailableAiProvider } from './providers/unavailable-ai.provider';
 import { AiAttachmentRepository } from './attachments/ai-attachment.repository';
 import { AiAttachmentService } from './attachments/ai-attachment.service';
@@ -51,6 +52,7 @@ import { CalendarModule } from '../calendar/calendar.module';
     AiProductivityService,
     AiResolver,
     GeminiProvider,
+    NvidiaNimProvider,
     UnavailableAiProvider,
     AiAttachmentRepository,
     AiAttachmentService,
@@ -63,14 +65,29 @@ import { CalendarModule } from '../calendar/calendar.module';
     },
     {
       provide: AI_PROVIDER,
-      inject: [ConfigService, GeminiProvider, UnavailableAiProvider],
+      inject: [
+        ConfigService,
+        GeminiProvider,
+        NvidiaNimProvider,
+        UnavailableAiProvider,
+      ],
       useFactory: (
         configService: ConfigService,
         geminiProvider: GeminiProvider,
+        nvidiaProvider: NvidiaNimProvider,
         unavailableProvider: UnavailableAiProvider,
       ) => {
-        const provider = configService.get<string>('AI_PROVIDER') ?? 'gemini';
-        return provider === 'gemini' ? geminiProvider : unavailableProvider;
+        const provider = (
+          configService.get<string>('AI_PROVIDER') ?? 'gemini'
+        ).toLowerCase();
+
+        if (provider === 'gemini') {
+          return geminiProvider;
+        }
+        if (provider === 'nvidia') {
+          return nvidiaProvider;
+        }
+        return unavailableProvider;
       },
     },
   ],

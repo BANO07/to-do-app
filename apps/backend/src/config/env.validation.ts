@@ -71,6 +71,10 @@ export const validateEnv = (config: Record<string, unknown>) => {
       ? String(config.PUSH_VAPID_SUBJECT)
       : undefined,
     GEMINI_API_KEY: optionalString(config.GEMINI_API_KEY),
+    NVIDIA_API_KEY: optionalString(config.NVIDIA_API_KEY),
+    NVIDIA_BASE_URL:
+      optionalString(config.NVIDIA_BASE_URL) ??
+      'https://integrate.api.nvidia.com/v1',
     AI_PROVIDER: optionalString(config.AI_PROVIDER) ?? 'gemini',
     AI_MODEL: optionalString(config.AI_MODEL),
     AI_FREE_DAILY_LIMIT: parsePositiveInt(
