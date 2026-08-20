@@ -12,7 +12,7 @@ import {
 } from './voice/voice.types';
 import { AiAttachment } from '../../core/models/app.models';
 
-describe('AiChatPanelComponent voice integration', () => {
+describe('AiChatPanelComponent', () => {
   let fixture: ComponentFixture<AiChatPanelComponent>;
   let component: AiChatPanelComponent;
 
@@ -27,7 +27,7 @@ describe('AiChatPanelComponent voice integration', () => {
   const readyAttachment = (overrides: Partial<AiAttachment> = {}): AiAttachment => ({
     id: 'att-1',
     conversationId: 'conv-1',
-    originalFilename: 'photo.png',
+    originalFilename: 'Single.png',
     mimeType: 'image/png',
     sizeBytes: 1024,
     status: 'READY',
@@ -35,6 +35,31 @@ describe('AiChatPanelComponent voice integration', () => {
     updatedAt: new Date().toISOString(),
     ...overrides,
   });
+
+  const successResponse = {
+    conversation: {
+      id: 'conv-1',
+      title: 'Test',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    assistantMessage: {
+      id: 'msg-1',
+      role: 'ASSISTANT' as const,
+      content: 'Here is your plan.',
+      createdAt: new Date().toISOString(),
+    },
+    toolCalls: [],
+    pendingConfirmation: null,
+    completed: true,
+    usage: {
+      dailyLimit: 20,
+      used: 2,
+      remaining: 18,
+      resetAt: new Date().toISOString(),
+      providerConfigured: true,
+    },
+  };
 
   const aiService = {
     panelOpen$: panelOpenSubject.asObservable(),
@@ -66,35 +91,12 @@ describe('AiChatPanelComponent voice integration', () => {
     getMessages: jasmine.createSpy('getMessages').and.returnValue(
       of({ items: [], limit: 50 }),
     ),
-    sendMessage: jasmine.createSpy('sendMessage').and.returnValue(
-      of({
-        conversation: {
-          id: 'conv-1',
-          title: 'Test',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-        assistantMessage: {
-          id: 'msg-1',
-          role: 'ASSISTANT',
-          content: 'Here is your plan.',
-          createdAt: new Date().toISOString(),
-        },
-        toolCalls: [],
-        pendingConfirmation: null,
-        completed: true,
-        usage: {
-          dailyLimit: 20,
-          used: 2,
-          remaining: 18,
-          resetAt: new Date().toISOString(),
-          providerConfigured: true,
-        },
-      }),
-    ),
+    sendMessage: jasmine.createSpy('sendMessage').and.returnValue(of(successResponse)),
     confirmAction: jasmine.createSpy('confirmAction'),
     createConversation: jasmine.createSpy('createConversation'),
-    listAttachments: jasmine.createSpy('listAttachments').and.returnValue(of([])),
+    listAttachments: jasmine.createSpy('listAttachments').and.returnValue(
+      of([readyAttachment()]),
+    ),
     uploadAttachment: jasmine.createSpy('uploadAttachment'),
     deleteAttachment: jasmine
       .createSpy('deleteAttachment')
@@ -140,32 +142,9 @@ describe('AiChatPanelComponent voice integration', () => {
     aiService.sendMessage.calls.reset();
     aiService.confirmAction.calls.reset();
     aiService.deleteAttachment.calls.reset();
-    aiService.sendMessage.and.returnValue(
-      of({
-        conversation: {
-          id: 'conv-1',
-          title: 'Test',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-        assistantMessage: {
-          id: 'msg-1',
-          role: 'ASSISTANT',
-          content: 'Here is your plan.',
-          createdAt: new Date().toISOString(),
-        },
-        toolCalls: [],
-        pendingConfirmation: null,
-        completed: true,
-        usage: {
-          dailyLimit: 20,
-          used: 2,
-          remaining: 18,
-          resetAt: new Date().toISOString(),
-          providerConfigured: true,
-        },
-      }),
-    );
+    aiService.listAttachments.calls.reset();
+    aiService.getMessages.calls.reset();
+    aiService.sendMessage.and.returnValue(of(successResponse));
     voiceOutput.speak.calls.reset();
 
     await TestBed.configureTestingModule({
@@ -196,6 +175,7 @@ describe('AiChatPanelComponent voice integration', () => {
     await fixture.whenStable();
     aiService.sendMessage.calls.reset();
     aiService.deleteAttachment.calls.reset();
+    aiService.listAttachments.calls.reset();
     voiceOutput.speak.calls.reset();
   });
 
@@ -239,19 +219,13 @@ describe('AiChatPanelComponent voice integration', () => {
   it('does not auto confirm destructive actions through voice', () => {
     aiService.sendMessage.and.returnValue(
       of({
-        conversation: {
-          id: 'conv-1',
-          title: 'Test',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
+        ...successResponse,
         assistantMessage: {
           id: 'msg-2',
           role: 'ASSISTANT',
           content: 'Delete permanently?',
           createdAt: new Date().toISOString(),
         },
-        toolCalls: [],
         pendingConfirmation: {
           id: 'confirm-1',
           action: 'deleteTask',
@@ -291,110 +265,359 @@ describe('AiChatPanelComponent voice integration', () => {
     expect(component.isMicDisabled).toBeTrue();
   });
 
-  describe('attachment composer send behavior', () => {
-    it('disables send when draft and attachments are empty', () => {
-      component.providerConfigured = true;
-      component.draft = '';
-      component.attachments = [];
-      expect(component.canSend).toBeFalse();
-    });
-
-    it('allows text-only send', () => {
-      component.providerConfigured = true;
-      component.activeConversationId = 'conv-1';
-      component.draft = 'Hello';
-      component.attachments = [];
-      expect(component.canSend).toBeTrue();
-
-      component.send();
-      expect(aiService.sendMessage).toHaveBeenCalledWith({
-        conversationId: 'conv-1',
-        message: 'Hello',
-      });
-      expect(component.draft).toBe('');
-    });
-
-    it('allows attachment-only send with empty text', () => {
-      component.providerConfigured = true;
-      component.activeConversationId = 'conv-1';
-      component.draft = '';
-      component.attachments = [readyAttachment()];
-      expect(component.canSend).toBeTrue();
-
-      component.send();
-      expect(aiService.sendMessage).toHaveBeenCalledWith({
-        conversationId: 'conv-1',
-        message: '',
-      });
-    });
-
-    it('allows text + attachment send and clears composer after success', () => {
+  describe('composer attachment state', () => {
+    it('A: text + attachment → send success clears composer, keeps label on message', () => {
       component.providerConfigured = true;
       component.activeConversationId = 'conv-1';
       component.draft = 'Analyze this';
-      component.attachments = [readyAttachment()];
+      component.composerAttachments = [readyAttachment()];
 
       component.send();
 
-      expect(aiService.sendMessage).toHaveBeenCalledWith({
-        conversationId: 'conv-1',
-        message: 'Analyze this',
-      });
+      const sent = aiService.sendMessage.calls.mostRecent().args[0];
+      expect(sent.message).toContain('Analyze this');
+      expect(sent.message).toContain('📎 Single.png');
+
+      const userMsg = component.messages.find((m) => m.role === 'USER');
+      expect(userMsg?.content).toContain('Analyze this');
+      expect(userMsg?.content).toContain('📎 Single.png');
+
+      expect(component.composerAttachments).toEqual([]);
       expect(component.draft).toBe('');
-      expect(component.attachments).toEqual([]);
-      expect(aiService.deleteAttachment).toHaveBeenCalledWith({ id: 'att-1' });
+      // Must NOT soft-delete persisted attachment after send
+      expect(aiService.deleteAttachment).not.toHaveBeenCalled();
     });
 
-    it('clears multiple attachments after successful attachment-only send', () => {
+    it('B: attachment-only → send success clears composer, message keeps attachment label', () => {
       component.providerConfigured = true;
       component.activeConversationId = 'conv-1';
       component.draft = '';
-      component.attachments = [
-        readyAttachment({ id: 'att-1', originalFilename: 'a.png' }),
-        readyAttachment({
-          id: 'att-2',
-          originalFilename: 'notes.txt',
-          mimeType: 'text/plain',
-        }),
-      ];
+      component.composerAttachments = [readyAttachment()];
 
       component.send();
 
-      expect(component.attachments).toEqual([]);
-      expect(aiService.deleteAttachment).toHaveBeenCalledWith({ id: 'att-1' });
-      expect(aiService.deleteAttachment).toHaveBeenCalledWith({ id: 'att-2' });
+      const sent = aiService.sendMessage.calls.mostRecent().args[0];
+      expect(sent.message).toBe('📎 Single.png');
+      expect(component.composerAttachments).toEqual([]);
+      expect(aiService.deleteAttachment).not.toHaveBeenCalled();
     });
 
-    it('keeps attachments when send fails so the user can retry', () => {
+    it('C: send failure keeps composer attachment and draft', () => {
       aiService.sendMessage.and.returnValue(
         throwError(() => ({ message: 'Network error' })),
       );
       component.providerConfigured = true;
       component.activeConversationId = 'conv-1';
       component.draft = 'Analyze this';
-      component.attachments = [readyAttachment()];
+      component.composerAttachments = [readyAttachment()];
 
       component.send();
 
-      expect(component.attachments.length).toBe(1);
-      expect(component.attachments[0].id).toBe('att-1');
+      expect(component.composerAttachments.length).toBe(1);
+      expect(component.composerAttachments[0].id).toBe('att-1');
       expect(component.draft).toBe('Analyze this');
       expect(aiService.deleteAttachment).not.toHaveBeenCalled();
-      expect(component.errorMessage).toContain('Network error');
     });
 
-    it('does not treat FAILED attachments as sendable without text', () => {
+    it('D: resets file input after successful send so same file can be reselected', () => {
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      // Simulate a previously chosen file path value
+      Object.defineProperty(fileInput, 'value', {
+        writable: true,
+        value: 'C:\\fakepath\\Single.png',
+      });
+      component.fileInput = { nativeElement: fileInput };
+
+      component.providerConfigured = true;
+      component.activeConversationId = 'conv-1';
+      component.draft = 'Hi';
+      component.composerAttachments = [readyAttachment()];
+
+      component.send();
+
+      expect(fileInput.value).toBe('');
+      expect(component.composerAttachments).toEqual([]);
+    });
+
+    it('E: conversation reload after send does not reintroduce composer chips', () => {
+      component.providerConfigured = true;
+      component.activeConversationId = 'conv-1';
+      component.draft = 'Analyze this';
+      component.composerAttachments = [readyAttachment()];
+
+      component.send();
+      expect(component.composerAttachments).toEqual([]);
+
+      // Simulate switching/reloading the conversation. listAttachments may still
+      // return READY files for AI context — they must NOT populate the composer.
+      aiService.getMessages.and.returnValue(
+        of({
+          items: [
+            {
+              id: 'msg-user',
+              role: 'USER',
+              content: 'Analyze this\n\n📎 Single.png',
+              createdAt: new Date().toISOString(),
+            },
+          ],
+          limit: 50,
+        }),
+      );
+
+      component.selectConversation('conv-1');
+
+      expect(component.composerAttachments).toEqual([]);
+      expect(aiService.listAttachments).not.toHaveBeenCalled();
+      expect(component.messages.some((m) => m.content.includes('📎 Single.png'))).toBeTrue();
+    });
+
+    it('F: multiple attachments → all labels on message, composer empty', () => {
+      component.providerConfigured = true;
+      component.activeConversationId = 'conv-1';
+      component.draft = 'Compare';
+      component.composerAttachments = [
+        readyAttachment({ id: 'att-1', originalFilename: 'a.png' }),
+        readyAttachment({
+          id: 'att-2',
+          originalFilename: 'b.png',
+          mimeType: 'image/png',
+        }),
+      ];
+
+      component.send();
+
+      const sent = aiService.sendMessage.calls.mostRecent().args[0];
+      expect(sent.message).toContain('📎 a.png');
+      expect(sent.message).toContain('📎 b.png');
+      expect(component.composerAttachments).toEqual([]);
+      expect(aiService.deleteAttachment).not.toHaveBeenCalled();
+    });
+
+    it('disables send when draft and composer attachments are empty', () => {
       component.providerConfigured = true;
       component.draft = '';
-      component.attachments = [readyAttachment({ status: 'FAILED' })];
+      component.composerAttachments = [];
       expect(component.canSend).toBeFalse();
     });
 
-    it('disables send while an upload is in progress', () => {
+    it('clones attachment objects so composer and message state are independent', () => {
+      const shared = readyAttachment();
       component.providerConfigured = true;
+      component.activeConversationId = 'conv-1';
+      component.draft = 'Hi';
+      component.composerAttachments = [shared];
+
+      component.send();
+
+      // Mutating the original object must not reintroduce a composer chip
+      shared.originalFilename = 'mutated.png';
+      expect(component.composerAttachments).toEqual([]);
+    });
+  });
+
+  describe('stop generating', () => {
+    beforeEach(() => {
+      component.open = true;
+      component.providerConfigured = true;
+      component.activeConversationId = 'conv-1';
+      fixture.detectChanges();
+    });
+
+    it('A: send sets isGenerating true and shows Stop button', () => {
+      const pending = new Subject<typeof successResponse>();
+      aiService.sendMessage.and.returnValue(pending.asObservable());
       component.draft = 'Hello';
-      component.uploading = true;
-      expect(component.canSend).toBeFalse();
+
+      component.send();
+      fixture.detectChanges();
+
+      expect(component.isGenerating).toBeTrue();
+      expect(component.sending).toBeTrue();
+      const stopBtn = fixture.nativeElement.querySelector(
+        'button.btn--stop',
+      ) as HTMLButtonElement | null;
+      expect(stopBtn).toBeTruthy();
+      expect(stopBtn!.textContent).toContain('Stop');
+      expect(
+        fixture.nativeElement.querySelector('button.btn--primary'),
+      ).toBeNull();
+
+      pending.complete();
+    });
+
+    it('B: Stop cancels the active request and restores Send', () => {
+      const pending = new Subject<typeof successResponse>();
+      aiService.sendMessage.and.returnValue(pending.asObservable());
+      component.draft = 'Hello';
+
+      component.send();
+      const activeSub = (component as unknown as { activeSendSub: { unsubscribe: () => void } })
+        .activeSendSub;
+      const unsubscribeSpy = spyOn(activeSub, 'unsubscribe').and.callThrough();
+
+      component.stopGenerating();
+      fixture.detectChanges();
+
+      expect(unsubscribeSpy).toHaveBeenCalled();
+      expect(component.isGenerating).toBeFalse();
+      expect(component.sending).toBeFalse();
+      expect(fixture.nativeElement.querySelector('button.btn--stop')).toBeNull();
+      const sendBtn = fixture.nativeElement.querySelector(
+        'button.btn--primary',
+      ) as HTMLButtonElement | null;
+      expect(sendBtn).toBeTruthy();
+      expect(sendBtn!.textContent).toContain('Send');
+    });
+
+    it('C: successful AI response clears isGenerating and restores Send', () => {
+      component.draft = 'Plan my day';
+
+      component.send();
+      fixture.detectChanges();
+
+      expect(component.isGenerating).toBeFalse();
+      expect(fixture.nativeElement.querySelector('button.btn--stop')).toBeNull();
+      expect(
+        fixture.nativeElement.querySelector('button.btn--primary')?.textContent,
+      ).toContain('Send');
+    });
+
+    it('D: normal request error clears isGenerating and keeps error handling', () => {
+      aiService.sendMessage.and.returnValue(
+        throwError(() => ({ message: 'Network error' })),
+      );
+      component.draft = 'Hello';
+
+      component.send();
+
+      expect(component.isGenerating).toBeFalse();
+      expect(component.errorMessage).toBe('Network error');
+      expect(component.draft).toBe('Hello');
+    });
+
+    it('E: cancellation must NOT display a generic error', () => {
+      const pending = new Subject<typeof successResponse>();
+      aiService.sendMessage.and.returnValue(pending.asObservable());
+      component.draft = 'Hello';
+
+      component.send();
+      component.stopGenerating();
+
+      expect(component.errorMessage).toBe('');
+      // Late abort-style error must also be ignored
+      pending.error({ name: 'AbortError', message: 'The user aborted a request.' });
+      expect(component.errorMessage).toBe('');
+    });
+
+    it('F: user message remains after cancellation', () => {
+      const pending = new Subject<typeof successResponse>();
+      aiService.sendMessage.and.returnValue(pending.asObservable());
+      component.draft = 'Keep me';
+
+      component.send();
+      component.stopGenerating();
+
+      expect(component.messages.some((m) => m.content === 'Keep me')).toBeTrue();
+      expect(component.messages.some((m) => m.role === 'ASSISTANT')).toBeFalse();
+    });
+
+    it('G: user can send another message after cancellation', () => {
+      const pending = new Subject<typeof successResponse>();
+      aiService.sendMessage.and.returnValue(pending.asObservable());
+      component.draft = 'First';
+
+      component.send();
+      component.stopGenerating();
+
+      aiService.sendMessage.and.returnValue(of(successResponse));
+      aiService.sendMessage.calls.reset();
+      component.draft = 'Second';
+      expect(component.canSend).toBeTrue();
+      component.send();
+
+      expect(aiService.sendMessage).toHaveBeenCalledWith({
+        conversationId: 'conv-1',
+        message: 'Second',
+      });
+      expect(component.isGenerating).toBeFalse();
+    });
+
+    it('H: attachment + message cancellation keeps composer attachments', () => {
+      const pending = new Subject<typeof successResponse>();
+      aiService.sendMessage.and.returnValue(pending.asObservable());
+      component.draft = 'Analyze this';
+      component.composerAttachments = [readyAttachment()];
+
+      component.send();
+      component.stopGenerating();
+
+      expect(component.composerAttachments.length).toBe(1);
+      expect(component.composerAttachments[0].id).toBe('att-1');
+      expect(aiService.deleteAttachment).not.toHaveBeenCalled();
+      expect(
+        component.messages.some((m) => m.content.includes('📎 Single.png')),
+      ).toBeTrue();
+    });
+
+    it('I: attachment-only cancellation does not delete attachments', () => {
+      const pending = new Subject<typeof successResponse>();
+      aiService.sendMessage.and.returnValue(pending.asObservable());
+      component.draft = '';
+      component.composerAttachments = [readyAttachment()];
+
+      component.send();
+      component.stopGenerating();
+
+      expect(component.composerAttachments.length).toBe(1);
+      expect(aiService.deleteAttachment).not.toHaveBeenCalled();
+      expect(component.messages.some((m) => m.content === '📎 Single.png')).toBeTrue();
+    });
+
+    it('J: Stop clicked multiple times does not throw or duplicate handling', () => {
+      const pending = new Subject<typeof successResponse>();
+      aiService.sendMessage.and.returnValue(pending.asObservable());
+      component.draft = 'Hello';
+
+      component.send();
+      expect(() => {
+        component.stopGenerating();
+        component.stopGenerating();
+        component.stopGenerating();
+      }).not.toThrow();
+      expect(component.isGenerating).toBeFalse();
+      expect(component.errorMessage).toBe('');
+      expect(component.messages.filter((m) => m.role === 'USER').length).toBe(1);
+    });
+
+    it('keeps assistant response when Stop is clicked after success', () => {
+      component.draft = 'Plan my day';
+
+      component.send();
+      expect(component.messages.some((m) => m.role === 'ASSISTANT')).toBeTrue();
+
+      component.stopGenerating();
+
+      expect(component.messages.some((m) => m.content === 'Here is your plan.')).toBeTrue();
+      expect(component.isGenerating).toBeFalse();
+    });
+
+    it('does not clear composer on cancel (unlike success path)', () => {
+      const pending = new Subject<typeof successResponse>();
+      aiService.sendMessage.and.returnValue(pending.asObservable());
+      component.draft = 'Hi';
+      component.composerAttachments = [readyAttachment()];
+
+      component.send();
+      expect(component.composerAttachments.length).toBe(1);
+
+      component.stopGenerating();
+      expect(component.composerAttachments.length).toBe(1);
+
+      // Contrast: a successful send clears composer
+      aiService.sendMessage.and.returnValue(of(successResponse));
+      component.send();
+      expect(component.composerAttachments).toEqual([]);
     });
   });
 });

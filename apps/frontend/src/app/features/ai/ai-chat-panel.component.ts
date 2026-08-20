@@ -11,7 +11,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
-import { Subject, takeUntil } from 'rxjs';
+import { Subject, Subscription, takeUntil, finalize } from 'rxjs';
 import { AiService } from '../../core/services/ai.service';
 import {
   AiAttachment,
@@ -235,9 +235,9 @@ const MAX_FILE_SIZE_MB = 10;
                 <p class="ai-panel__voice-indicator">🔊 Speaking…</p>
               }
 
-              @if (attachments.length > 0) {
-                <div class="ai-panel__attachments" aria-label="Attached files">
-                  @for (att of attachments; track att.id) {
+              @if (composerAttachments.length > 0) {
+                <div class="ai-panel__attachments" aria-label="Pending attachments">
+                  @for (att of composerAttachments; track att.id) {
                     <div class="ai-panel__attachment" [class.ai-panel__attachment--uploading]="att.status === 'UPLOADING'" [class.ai-panel__attachment--failed]="att.status === 'FAILED'">
                       <span class="ai-panel__attachment-icon">{{ attachmentIcon(att.mimeType) }}</span>
                       <span class="ai-panel__attachment-name" [title]="att.originalFilename">{{ att.originalFilename }}</span>
@@ -252,7 +252,7 @@ const MAX_FILE_SIZE_MB = 10;
                         class="btn-icon ai-panel__attachment-remove"
                         [attr.aria-label]="'Remove ' + att.originalFilename"
                         [disabled]="sending || confirming"
-                        (click)="removeAttachment(att)"
+                        (click)="removeComposerAttachment(att)"
                       >✕</button>
                     </div>
                   }
@@ -307,14 +307,27 @@ const MAX_FILE_SIZE_MB = 10;
                   [disabled]="sending || confirming || !providerConfigured"
                   (keydown)="onComposerKeydown($event)"
                 ></textarea>
-                <button
-                  type="button"
-                  class="btn btn--primary"
-                  [disabled]="!canSend"
-                  (click)="send()"
-                >
-                  Send
-                </button>
+                @if (sending) {
+                  <button
+                    type="button"
+                    class="btn btn--stop"
+                    aria-label="Stop generating"
+                    title="Stop generating"
+                    (click)="stopGenerating()"
+                  >
+                    <span aria-hidden="true">■</span>
+                    Stop
+                  </button>
+                } @else {
+                  <button
+                    type="button"
+                    class="btn btn--primary"
+                    [disabled]="!canSend"
+                    (click)="send()"
+                  >
+                    Send
+                  </button>
+                }
               </div>
               @if (draftTooLong) {
                 <p class="ai-panel__state ai-panel__state--error">
@@ -577,6 +590,24 @@ const MAX_FILE_SIZE_MB = 10;
         padding: 0.75rem;
         background: var(--surface-muted);
       }
+      .btn--stop {
+        align-self: end;
+        margin-bottom: 0.35rem;
+        background: var(--surface-muted);
+        color: var(--text-primary);
+        border: 1px solid var(--border);
+        white-space: nowrap;
+        gap: 0.4rem;
+      }
+      .btn--stop:hover {
+        border-color: var(--danger);
+        color: var(--danger);
+        background: color-mix(in srgb, var(--danger) 10%, transparent);
+      }
+      .btn--stop span {
+        font-size: 0.65rem;
+        line-height: 1;
+      }
       .ai-panel__mic {
         align-self: end;
         margin-bottom: 0.35rem;
@@ -656,6 +687,10 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
   private readonly voiceOutput = inject(VoiceOutputService);
   private readonly voicePreferences = inject(VoicePreferencesService);
   private readonly destroy$ = new Subject<void>();
+  /** Active aiChat subscription — unsubscribing aborts the Apollo HTTP request. */
+  private activeSendSub: Subscription | null = null;
+  /** True when the user intentionally stopped the current generation. */
+  private cancelledByUser = false;
 
   @ViewChild('messagesContainer') messagesContainer?: ElementRef<HTMLElement>;
   @ViewChild('composer') composer?: ElementRef<HTMLTextAreaElement>;
@@ -663,6 +698,7 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
 
   open = false;
   draft = '';
+  /** True while an aiChat request is in flight (also drives Stop button / Thinking…). */
   sending = false;
   confirming = false;
   messagesLoading = false;
@@ -679,8 +715,12 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
   activeConversationId: string | null = null;
   pendingConfirmation: AiPendingConfirmation | null = null;
 
-  attachments: AiAttachment[] = [];
-  attachmentsLoading = false;
+  /**
+   * Pending attachments for the NEXT send only.
+   * Independent from conversation history / backend READY inventory.
+   * Never assign listAttachments() results into this array.
+   */
+  composerAttachments: AiAttachment[] = [];
   uploading = false;
   latestToolCalls: AiToolCallResult[] = [];
 
@@ -741,18 +781,23 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
     return this.voiceListening ? 'Release to stop' : 'Hold to speak';
   }
 
+  /** Alias for generation lifecycle — same source of truth as `sending`. */
+  get isGenerating(): boolean {
+    return this.sending;
+  }
+
   get draftTooLong(): boolean {
     return this.draft.trim().length > AI_MESSAGE_MAX_LENGTH;
   }
 
-  /** READY attachments currently shown in the composer. */
-  get readyAttachments(): AiAttachment[] {
-    return this.attachments.filter((a) => a.status === 'READY');
+  /** READY attachments currently pending in the composer. */
+  get readyComposerAttachments(): AiAttachment[] {
+    return this.composerAttachments.filter((a) => a.status === 'READY');
   }
 
   /**
-   * Send is allowed when there is text and/or at least one READY attachment.
-   * Empty text with no attachments is invalid.
+   * Send is allowed when there is text and/or at least one READY composer attachment.
+   * Empty text with no pending attachments is invalid.
    */
   get canSend(): boolean {
     if (
@@ -765,7 +810,7 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
       return false;
     }
     const hasText = this.draft.trim().length > 0;
-    const hasAttachment = this.readyAttachments.length > 0;
+    const hasAttachment = this.readyComposerAttachments.length > 0;
     return hasText || hasAttachment;
   }
 
@@ -830,6 +875,9 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.cancelledByUser = true;
+    this.activeSendSub?.unsubscribe();
+    this.activeSendSub = null;
     this.voiceInput.cancel();
     this.voiceOutput.cancel();
     this.destroy$.next();
@@ -944,24 +992,12 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
     this.aiService.setActiveConversationId(id);
     this.pendingConfirmation = null;
     this.latestToolCalls = [];
-    this.attachments = [];
+    // Composer pending state is session-local — never hydrate it from conversation
+    // attachment inventory (that race was reintroducing chips after send).
+    this.composerAttachments = [];
     this.attachmentError = '';
     this.voiceOutput.cancel();
     this.loadMessages(id);
-    this.loadAttachments(id);
-  }
-
-  loadAttachments(conversationId: string): void {
-    this.attachmentsLoading = true;
-    this.aiService.listAttachments(conversationId).subscribe({
-      next: (attachments) => {
-        this.attachments = attachments.filter((a) => a.status !== 'DELETED');
-        this.attachmentsLoading = false;
-      },
-      error: () => {
-        this.attachmentsLoading = false;
-      },
-    });
   }
 
   triggerFileInput(): void {
@@ -974,7 +1010,7 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
     if (!input) {
       return;
     }
-    // Reset the input so the same file can be re-selected after removal
+    // Reset the input so the same file can be re-selected after removal/send
     input.value = '';
 
     if (!file) {
@@ -1022,9 +1058,12 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
         .subscribe({
           next: (attachment) => {
             this.uploading = false;
-            this.attachments = [
-              ...this.attachments.filter((a) => a.id !== attachment.id),
-              attachment,
+            // Clone so composer state never shares a mutable reference with
+            // message/history objects.
+            const pending: AiAttachment = { ...attachment };
+            this.composerAttachments = [
+              ...this.composerAttachments.filter((a) => a.id !== pending.id),
+              pending,
             ].filter((a) => a.status !== 'DELETED');
             this.cdRef.markForCheck();
           },
@@ -1045,12 +1084,16 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
     reader.readAsDataURL(file);
   }
 
-  removeAttachment(attachment: AiAttachment): void {
+  /**
+   * Remove a pending composer attachment (user cancelled before send).
+   * Soft-deletes the unused upload from the conversation inventory.
+   */
+  removeComposerAttachment(attachment: AiAttachment): void {
     this.attachmentError = '';
+    this.composerAttachments = this.composerAttachments.filter(
+      (a) => a.id !== attachment.id,
+    );
     this.aiService.deleteAttachment({ id: attachment.id }).subscribe({
-      next: () => {
-        this.attachments = this.attachments.filter((a) => a.id !== attachment.id);
-      },
       error: () => {
         this.attachmentError = 'Unable to remove attachment.';
       },
@@ -1133,28 +1176,46 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const message = this.draft.trim();
-    const pendingAttachmentIds = this.readyAttachments.map((a) => a.id);
+    const draftText = this.draft.trim();
+    // Snapshot + clone pending attachments BEFORE any state mutation so
+    // message history and composer state stay independent.
+    const pendingSnapshot = this.readyComposerAttachments.map((a) => ({ ...a }));
+    const outgoingMessage = this.buildOutgoingUserContent(draftText, pendingSnapshot);
 
     if (!this.activeConversationId) {
-      // Attachments require an existing conversation (upload is blocked otherwise).
-      // Attachment-only send always has activeConversationId; text-only may create one.
-      this.startNewConversationAndSend(message, pendingAttachmentIds);
+      this.startNewConversationAndSend(outgoingMessage, pendingSnapshot);
       return;
     }
 
-    this.dispatchMessage(this.activeConversationId, message, pendingAttachmentIds);
+    this.dispatchMessage(this.activeConversationId, outgoingMessage, pendingSnapshot);
+  }
+
+  /**
+   * Abort the in-flight aiChat request (Apollo unsubscribe → HTTP abort).
+   * Keeps the optimistic user message and composer attachments for retry.
+   * Does not surface a generic error.
+   */
+  stopGenerating(): void {
+    if (!this.sending && !this.activeSendSub) {
+      return;
+    }
+    this.cancelledByUser = true;
+    this.activeSendSub?.unsubscribe();
+    this.activeSendSub = null;
+    this.sending = false;
+    this.errorMessage = '';
+    this.cdRef.markForCheck();
   }
 
   private startNewConversationAndSend(
-    message: string,
-    pendingAttachmentIds: string[] = [],
+    outgoingMessage: string,
+    pendingSnapshot: AiAttachment[] = [],
   ): void {
     this.aiService.createConversation().subscribe({
       next: (conversation) => {
         this.conversations = [conversation, ...this.conversations];
         this.selectConversation(conversation.id);
-        this.dispatchMessage(conversation.id, message, pendingAttachmentIds);
+        this.dispatchMessage(conversation.id, outgoingMessage, pendingSnapshot);
       },
       error: () => {
         this.errorMessage = 'Unable to create a conversation.';
@@ -1164,9 +1225,13 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
 
   private dispatchMessage(
     conversationId: string,
-    message: string,
-    pendingAttachmentIds: string[] = [],
+    outgoingMessage: string,
+    pendingSnapshot: AiAttachment[] = [],
   ): void {
+    // Tear down any prior in-flight send before starting another.
+    this.activeSendSub?.unsubscribe();
+    this.activeSendSub = null;
+    this.cancelledByUser = false;
     this.sending = true;
     this.errorMessage = '';
     this.voiceErrorMessage = '';
@@ -1175,73 +1240,112 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
     this.latestToolCalls = [];
     this.voiceInput.cancel();
     this.voiceOutput.cancel();
-    this.draft = '';
 
-    const optimisticContent =
-      message || this.buildAttachmentOnlyLabel(pendingAttachmentIds);
+    const previousDraft = this.draft;
+    this.draft = '';
 
     const optimistic: AiMessage = {
       id: `local-${Date.now()}`,
       role: 'USER',
-      content: optimisticContent,
+      content: outgoingMessage,
       createdAt: new Date().toISOString(),
     };
     this.messages = [...this.messages, optimistic];
     this.scrollToBottom();
 
-    // Send empty string when attachment-only — backend accepts it when READY
-    // attachments exist on the conversation.
-    this.aiService.sendMessage({ conversationId, message }).subscribe({
-      next: (response) => {
-        this.sending = false;
-        this.usage = response.usage ?? this.usage;
-        this.conversations = this.conversations.map((item) =>
-          item.id === response.conversation.id ? response.conversation : item,
-        );
-        if (response.assistantMessage) {
-          this.messages = [...this.messages, response.assistantMessage];
-        }
-        this.latestToolCalls = response.toolCalls ?? [];
-        this.pendingConfirmation = response.pendingConfirmation ?? null;
-        this.clearComposerAfterSuccessfulSend(pendingAttachmentIds);
-        this.handleAssistantSpeech(response.pendingConfirmation, response.assistantMessage?.content);
-        this.scrollToBottom();
-      },
-      error: (error) => {
-        this.sending = false;
-        this.errorMessage =
-          error?.graphQLErrors?.[0]?.message ??
-          error?.message ??
-          'Unable to send message.';
-        this.messages = this.messages.filter((item) => item.id !== optimistic.id);
-        this.draft = message;
-        // Keep pending attachments so the user can retry.
-      },
-    });
+    this.activeSendSub = this.aiService
+      .sendMessage({ conversationId, message: outgoingMessage })
+      .pipe(
+        takeUntil(this.destroy$),
+        finalize(() => {
+          this.sending = false;
+          this.activeSendSub = null;
+          this.cdRef.markForCheck();
+        }),
+      )
+      .subscribe({
+        next: (response) => {
+          // Stop won the race — do not apply a late response.
+          if (this.cancelledByUser) {
+            return;
+          }
+          this.usage = response.usage ?? this.usage;
+          this.conversations = this.conversations.map((item) =>
+            item.id === response.conversation.id ? response.conversation : item,
+          );
+          if (response.assistantMessage) {
+            this.messages = [...this.messages, response.assistantMessage];
+          }
+          this.latestToolCalls = response.toolCalls ?? [];
+          this.pendingConfirmation = response.pendingConfirmation ?? null;
+          // Clear composer only — keep backend READY attachments for AI context.
+          // Do NOT soft-delete; do NOT reload conversation attachments into composer.
+          this.clearComposerPendingAttachments(pendingSnapshot.map((a) => a.id));
+          this.handleAssistantSpeech(
+            response.pendingConfirmation,
+            response.assistantMessage?.content,
+          );
+          this.scrollToBottom();
+          this.cdRef.markForCheck();
+        },
+        error: (error) => {
+          if (this.isRequestCancellation(error)) {
+            // Intentional stop / aborted HTTP — keep user message + composer.
+            this.errorMessage = '';
+            this.cdRef.markForCheck();
+            return;
+          }
+          this.errorMessage =
+            error?.graphQLErrors?.[0]?.message ??
+            error?.message ??
+            'Unable to send message.';
+          this.messages = this.messages.filter((item) => item.id !== optimistic.id);
+          this.draft = previousDraft;
+          // Keep composerAttachments unchanged for retry.
+          this.cdRef.markForCheck();
+        },
+      });
+  }
+
+  private isRequestCancellation(error: unknown): boolean {
+    if (this.cancelledByUser) {
+      return true;
+    }
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+    const err = error as {
+      name?: string;
+      message?: string;
+      networkError?: { name?: string; message?: string };
+    };
+    const name = err.name ?? err.networkError?.name ?? '';
+    const message = `${err.message ?? ''} ${err.networkError?.message ?? ''}`;
+    return (
+      name === 'AbortError' ||
+      /AbortError/i.test(name) ||
+      /aborted|cancelled|canceled|Observable cancelled/i.test(message)
+    );
   }
 
   /**
-   * After a successful send: clear composer chips, soft-delete those attachments
-   * so they do not reappear, and reset the file input for re-selecting the same file.
+   * Clears pending composer chips after a successful send.
+   * Does NOT delete backend attachment records (they remain for AI context /
+   * sent-message association). Resets the file input so the same file can
+   * be selected again.
    */
-  private clearComposerAfterSuccessfulSend(pendingAttachmentIds: string[]): void {
-    if (pendingAttachmentIds.length === 0) {
+  private clearComposerPendingAttachments(pendingIds: string[]): void {
+    if (pendingIds.length === 0) {
       this.resetFileInput();
       return;
     }
 
-    const idSet = new Set(pendingAttachmentIds);
-    this.attachments = this.attachments.filter((a) => !idSet.has(a.id));
+    const idSet = new Set(pendingIds);
+    this.composerAttachments = this.composerAttachments.filter(
+      (a) => !idSet.has(a.id),
+    );
     this.attachmentError = '';
     this.resetFileInput();
-
-    for (const id of pendingAttachmentIds) {
-      this.aiService.deleteAttachment({ id }).subscribe({
-        error: () => {
-          // Composer already cleared; ignore soft-delete failures.
-        },
-      });
-    }
   }
 
   private resetFileInput(): void {
@@ -1250,17 +1354,26 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
     }
   }
 
-  private buildAttachmentOnlyLabel(pendingAttachmentIds: string[]): string {
-    const names = this.attachments
-      .filter((a) => pendingAttachmentIds.includes(a.id))
-      .map((a) => a.originalFilename);
-    if (names.length === 0) {
-      return '📎 Attachment';
+  /** Persist attachment labels into the user message so history stays visible. */
+  private buildOutgoingUserContent(
+    text: string,
+    pendingSnapshot: AiAttachment[],
+  ): string {
+    const label = this.formatAttachmentLabel(pendingSnapshot);
+    if (text && label) {
+      return `${text}\n\n${label}`;
     }
-    if (names.length === 1) {
-      return `📎 ${names[0]}`;
+    return text || label;
+  }
+
+  private formatAttachmentLabel(pendingSnapshot: AiAttachment[]): string {
+    if (pendingSnapshot.length === 0) {
+      return '';
     }
-    return `📎 ${names.length} attachments`;
+    if (pendingSnapshot.length === 1) {
+      return `📎 ${pendingSnapshot[0].originalFilename}`;
+    }
+    return pendingSnapshot.map((a) => `📎 ${a.originalFilename}`).join('\n');
   }
 
   confirmPending(): void {

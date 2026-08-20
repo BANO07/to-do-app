@@ -112,46 +112,39 @@ describe('AiChatPanelComponent - Attachment UI', () => {
     fixture.detectChanges();
   });
 
-  describe('loadAttachments', () => {
-    it('should load attachments when selecting a conversation', () => {
-      aiServiceSpy.listAttachments.and.returnValue(of([makeAttachment()]));
+  describe('composer attachment state', () => {
+    it('should clear composer attachments when selecting a conversation', () => {
+      component.composerAttachments = [makeAttachment()];
       component.selectConversation('conv-1');
-      expect(aiServiceSpy.listAttachments).toHaveBeenCalledWith('conv-1');
-      expect(component.attachments.length).toBe(1);
+      expect(component.composerAttachments).toEqual([]);
+      // Conversation inventory is NOT loaded into the composer
+      expect(aiServiceSpy.listAttachments).not.toHaveBeenCalled();
     });
 
-    it('should clear attachment state when switching conversations', () => {
-      component.attachments = [makeAttachment()];
-      aiServiceSpy.listAttachments.and.returnValue(of([]));
+    it('should clear composer state when switching conversations', () => {
+      component.composerAttachments = [makeAttachment()];
       component.selectConversation('conv-2');
-      // Attachments cleared before load completes
-      expect(aiServiceSpy.listAttachments).toHaveBeenCalledWith('conv-2');
-    });
-
-    it('should not show DELETED attachments', () => {
-      aiServiceSpy.listAttachments.and.returnValue(
-        of([makeAttachment({ status: 'DELETED' })]),
-      );
-      component.loadAttachments('conv-1');
-      expect(component.attachments.length).toBe(0);
+      expect(component.composerAttachments).toEqual([]);
     });
   });
 
-  describe('removeAttachment', () => {
-    it('should call deleteAttachment and remove from list', () => {
+  describe('removeComposerAttachment', () => {
+    it('should call deleteAttachment and remove from composer list', () => {
       const att = makeAttachment();
-      component.attachments = [att];
+      component.composerAttachments = [att];
       aiServiceSpy.deleteAttachment.and.returnValue(of(true));
-      component.removeAttachment(att);
+      component.removeComposerAttachment(att);
       expect(aiServiceSpy.deleteAttachment).toHaveBeenCalledWith({ id: att.id });
-      expect(component.attachments.length).toBe(0);
+      expect(component.composerAttachments.length).toBe(0);
     });
 
     it('should set error message on delete failure', () => {
       const att = makeAttachment();
-      component.attachments = [att];
+      component.composerAttachments = [att];
       aiServiceSpy.deleteAttachment.and.returnValue(throwError(() => new Error('server error')));
-      component.removeAttachment(att);
+      component.removeComposerAttachment(att);
+      // Composer chip is removed immediately; error is set if backend delete fails
+      expect(component.composerAttachments.length).toBe(0);
       expect(component.attachmentError).toBeTruthy();
     });
   });
