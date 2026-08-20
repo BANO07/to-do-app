@@ -302,10 +302,11 @@ describe('AiChatPanelComponent', () => {
       expect(aiService.deleteAttachment).not.toHaveBeenCalled();
     });
 
-    it('C: send failure keeps composer attachment and draft', () => {
+    it('C: send failure before persist restores composer attachment and draft', () => {
       aiService.sendMessage.and.returnValue(
         throwError(() => ({ message: 'Network error' })),
       );
+      aiService.getMessages.and.returnValue(of({ items: [], limit: 50 }));
       component.providerConfigured = true;
       component.activeConversationId = 'conv-1';
       component.draft = 'Analyze this';
@@ -319,10 +320,39 @@ describe('AiChatPanelComponent', () => {
       expect(aiService.deleteAttachment).not.toHaveBeenCalled();
     });
 
+    it('C2: AI failure after message persist does NOT restore attachment', () => {
+      const outgoing = 'Analyze this\n\n📎 Single.png';
+      aiService.sendMessage.and.returnValue(
+        throwError(() => ({ message: 'Provider error' })),
+      );
+      aiService.getMessages.and.returnValue(
+        of({
+          items: [
+            {
+              id: 'msg-user',
+              role: 'USER' as const,
+              content: outgoing,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+          limit: 50,
+        }),
+      );
+      component.providerConfigured = true;
+      component.activeConversationId = 'conv-1';
+      component.draft = 'Analyze this';
+      component.composerAttachments = [readyAttachment()];
+
+      component.send();
+
+      expect(component.composerAttachments).toEqual([]);
+      expect(component.draft).toBe('');
+      expect(component.messages.some((m) => m.content.includes('📎 Single.png'))).toBeTrue();
+    });
+
     it('D: resets file input after successful send so same file can be reselected', () => {
       const fileInput = document.createElement('input');
       fileInput.type = 'file';
-      // Simulate a previously chosen file path value
       Object.defineProperty(fileInput, 'value', {
         writable: true,
         value: 'C:\\fakepath\\Single.png',
@@ -349,8 +379,6 @@ describe('AiChatPanelComponent', () => {
       component.send();
       expect(component.composerAttachments).toEqual([]);
 
-      // Simulate switching/reloading the conversation. listAttachments may still
-      // return READY files for AI context — they must NOT populate the composer.
       aiService.getMessages.and.returnValue(
         of({
           items: [
@@ -394,6 +422,72 @@ describe('AiChatPanelComponent', () => {
       expect(aiService.deleteAttachment).not.toHaveBeenCalled();
     });
 
+    it('clears composer immediately while request is in flight (no dual chip)', () => {
+      const pending = new Subject<typeof successResponse>();
+      aiService.sendMessage.and.returnValue(pending.asObservable());
+      component.providerConfigured = true;
+      component.activeConversationId = 'conv-1';
+      component.draft = 'Analyze this';
+      component.composerAttachments = [readyAttachment()];
+
+      component.send();
+
+      expect(component.sending).toBeTrue();
+      expect(component.composerAttachments).toEqual([]);
+      expect(
+        component.messages.some((m) => m.content.includes('📎 Single.png')),
+      ).toBeTrue();
+
+      pending.next(successResponse);
+      pending.complete();
+      expect(component.composerAttachments).toEqual([]);
+    });
+
+    it('prevents duplicate send while a request is in flight', () => {
+      const pending = new Subject<typeof successResponse>();
+      aiService.sendMessage.and.returnValue(pending.asObservable());
+      component.providerConfigured = true;
+      component.activeConversationId = 'conv-1';
+      component.draft = 'Hello';
+
+      component.send();
+      expect(aiService.sendMessage.calls.count()).toBe(1);
+      expect(component.canSend).toBeFalse();
+
+      component.draft = 'Again';
+      component.send();
+      expect(aiService.sendMessage.calls.count()).toBe(1);
+
+      pending.complete();
+    });
+
+    it('only removes successfully queued attachments; keeps unsent composer chips', () => {
+      const pending = new Subject<typeof successResponse>();
+      aiService.sendMessage.and.returnValue(pending.asObservable());
+      component.providerConfigured = true;
+      component.activeConversationId = 'conv-1';
+      component.draft = 'Compare';
+      component.composerAttachments = [
+        readyAttachment({ id: 'att-1', originalFilename: 'a.png' }),
+        readyAttachment({ id: 'att-2', originalFilename: 'b.png' }),
+      ];
+
+      // Snapshot is taken at send — both are sent
+      component.send();
+      expect(component.composerAttachments).toEqual([]);
+
+      // Simulate a late upload completing after send started
+      component.composerAttachments = [
+        readyAttachment({ id: 'att-3', originalFilename: 'c.png' }),
+      ];
+      pending.next(successResponse);
+      pending.complete();
+
+      // Success clear only removes the sent snapshot ids, not a newer chip
+      expect(component.composerAttachments.length).toBe(1);
+      expect(component.composerAttachments[0].id).toBe('att-3');
+    });
+
     it('disables send when draft and composer attachments are empty', () => {
       component.providerConfigured = true;
       component.draft = '';
@@ -410,7 +504,6 @@ describe('AiChatPanelComponent', () => {
 
       component.send();
 
-      // Mutating the original object must not reintroduce a composer chip
       shared.originalFilename = 'mutated.png';
       expect(component.composerAttachments).toEqual([]);
     });
@@ -543,24 +636,25 @@ describe('AiChatPanelComponent', () => {
       expect(component.isGenerating).toBeFalse();
     });
 
-    it('H: attachment + message cancellation keeps composer attachments', () => {
+    it('H: attachment + message Stop does not restore composer attachments', () => {
       const pending = new Subject<typeof successResponse>();
       aiService.sendMessage.and.returnValue(pending.asObservable());
       component.draft = 'Analyze this';
       component.composerAttachments = [readyAttachment()];
 
       component.send();
+      expect(component.composerAttachments).toEqual([]);
+
       component.stopGenerating();
 
-      expect(component.composerAttachments.length).toBe(1);
-      expect(component.composerAttachments[0].id).toBe('att-1');
+      expect(component.composerAttachments).toEqual([]);
       expect(aiService.deleteAttachment).not.toHaveBeenCalled();
       expect(
         component.messages.some((m) => m.content.includes('📎 Single.png')),
       ).toBeTrue();
     });
 
-    it('I: attachment-only cancellation does not delete attachments', () => {
+    it('I: attachment-only Stop does not restore or delete attachments', () => {
       const pending = new Subject<typeof successResponse>();
       aiService.sendMessage.and.returnValue(pending.asObservable());
       component.draft = '';
@@ -569,7 +663,7 @@ describe('AiChatPanelComponent', () => {
       component.send();
       component.stopGenerating();
 
-      expect(component.composerAttachments.length).toBe(1);
+      expect(component.composerAttachments).toEqual([]);
       expect(aiService.deleteAttachment).not.toHaveBeenCalled();
       expect(component.messages.some((m) => m.content === '📎 Single.png')).toBeTrue();
     });
@@ -602,20 +696,22 @@ describe('AiChatPanelComponent', () => {
       expect(component.isGenerating).toBeFalse();
     });
 
-    it('does not clear composer on cancel (unlike success path)', () => {
+    it('does not restore composer attachments after Stop', () => {
       const pending = new Subject<typeof successResponse>();
       aiService.sendMessage.and.returnValue(pending.asObservable());
       component.draft = 'Hi';
       component.composerAttachments = [readyAttachment()];
 
       component.send();
-      expect(component.composerAttachments.length).toBe(1);
+      expect(component.composerAttachments).toEqual([]);
 
       component.stopGenerating();
-      expect(component.composerAttachments.length).toBe(1);
+      expect(component.composerAttachments).toEqual([]);
 
-      // Contrast: a successful send clears composer
+      // A later successful send of a new attachment still clears composer
       aiService.sendMessage.and.returnValue(of(successResponse));
+      component.composerAttachments = [readyAttachment({ id: 'att-2' })];
+      component.draft = 'Again';
       component.send();
       expect(component.composerAttachments).toEqual([]);
     });

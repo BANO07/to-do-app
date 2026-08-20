@@ -721,6 +721,12 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
    * Never assign listAttachments() results into this array.
    */
   composerAttachments: AiAttachment[] = [];
+  /**
+   * Snapshot of attachments accepted into the current in-flight send.
+   * Used to restore the composer only when the request fails before the
+   * user message is persisted. Cleared on success / Stop.
+   */
+  private inFlightSentAttachments: AiAttachment[] | null = null;
   uploading = false;
   latestToolCalls: AiToolCallResult[] = [];
 
@@ -1192,7 +1198,8 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
 
   /**
    * Abort the in-flight aiChat request (Apollo unsubscribe → HTTP abort).
-   * Keeps the optimistic user message and composer attachments for retry.
+   * Keeps the optimistic user message. Does NOT restore composer attachments
+   * (they were already moved into the sent message bubble).
    * Does not surface a generic error.
    */
   stopGenerating(): void {
@@ -1200,6 +1207,7 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
       return;
     }
     this.cancelledByUser = true;
+    this.inFlightSentAttachments = null;
     this.activeSendSub?.unsubscribe();
     this.activeSendSub = null;
     this.sending = false;
@@ -1244,6 +1252,14 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
     const previousDraft = this.draft;
     this.draft = '';
 
+    // Capture sent attachments, then clear composer immediately so the chip
+    // is not duplicated next to the optimistic user message during Thinking…
+    this.inFlightSentAttachments =
+      pendingSnapshot.length > 0
+        ? pendingSnapshot.map((a) => ({ ...a }))
+        : null;
+    this.clearComposerPendingAttachments(pendingSnapshot.map((a) => a.id));
+
     const optimistic: AiMessage = {
       id: `local-${Date.now()}`,
       role: 'USER',
@@ -1269,6 +1285,7 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
           if (this.cancelledByUser) {
             return;
           }
+          this.inFlightSentAttachments = null;
           this.usage = response.usage ?? this.usage;
           this.conversations = this.conversations.map((item) =>
             item.id === response.conversation.id ? response.conversation : item,
@@ -1278,8 +1295,7 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
           }
           this.latestToolCalls = response.toolCalls ?? [];
           this.pendingConfirmation = response.pendingConfirmation ?? null;
-          // Clear composer only — keep backend READY attachments for AI context.
-          // Do NOT soft-delete; do NOT reload conversation attachments into composer.
+          // Composer was already cleared on send; ensure it stays empty.
           this.clearComposerPendingAttachments(pendingSnapshot.map((a) => a.id));
           this.handleAssistantSpeech(
             response.pendingConfirmation,
@@ -1290,21 +1306,78 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
         },
         error: (error) => {
           if (this.isRequestCancellation(error)) {
-            // Intentional stop / aborted HTTP — keep user message + composer.
+            // Intentional stop — keep user message; do not restore attachments.
+            this.inFlightSentAttachments = null;
             this.errorMessage = '';
             this.cdRef.markForCheck();
             return;
           }
+
           this.errorMessage =
             error?.graphQLErrors?.[0]?.message ??
             error?.message ??
             'Unable to send message.';
-          this.messages = this.messages.filter((item) => item.id !== optimistic.id);
-          this.draft = previousDraft;
-          // Keep composerAttachments unchanged for retry.
-          this.cdRef.markForCheck();
+          this.handleSendFailure(conversationId, optimistic, previousDraft, outgoingMessage);
         },
       });
+  }
+
+  /**
+   * After a failed aiChat request, sync with the server.
+   * The backend persists the user message before calling the provider, so a
+   * late provider failure must NOT restore already-sent attachments.
+   * Restore composer + draft only when the user message was never persisted.
+   */
+  private handleSendFailure(
+    conversationId: string,
+    optimistic: AiMessage,
+    previousDraft: string,
+    outgoingMessage: string,
+  ): void {
+    const snapshot = this.inFlightSentAttachments;
+    this.inFlightSentAttachments = null;
+
+    this.aiService.getMessages(conversationId).subscribe({
+      next: (page) => {
+        this.messages = page.items;
+        const persisted = page.items.some(
+          (item) =>
+            item.role === 'USER' &&
+            (item.content === outgoingMessage ||
+              item.content.includes(outgoingMessage) ||
+              outgoingMessage.includes(item.content)),
+        );
+
+        if (!persisted) {
+          // Failure before message creation — allow retry.
+          this.draft = previousDraft;
+          this.restoreComposerAttachments(snapshot);
+        }
+        // If persisted: leave composer empty; draft stays cleared.
+        this.cdRef.markForCheck();
+      },
+      error: () => {
+        // Cannot sync — fall back to client-side undo for retry.
+        this.messages = this.messages.filter((item) => item.id !== optimistic.id);
+        this.draft = previousDraft;
+        this.restoreComposerAttachments(snapshot);
+        this.cdRef.markForCheck();
+      },
+    });
+  }
+
+  private restoreComposerAttachments(snapshot: AiAttachment[] | null): void {
+    if (!snapshot?.length) {
+      return;
+    }
+    const existingIds = new Set(this.composerAttachments.map((a) => a.id));
+    const toRestore = snapshot
+      .filter((a) => !existingIds.has(a.id))
+      .map((a) => ({ ...a }));
+    if (toRestore.length === 0) {
+      return;
+    }
+    this.composerAttachments = [...this.composerAttachments, ...toRestore];
   }
 
   private isRequestCancellation(error: unknown): boolean {
@@ -1329,10 +1402,9 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Clears pending composer chips after a successful send.
-   * Does NOT delete backend attachment records (they remain for AI context /
-   * sent-message association). Resets the file input so the same file can
-   * be selected again.
+   * Clears pending composer chips after they are accepted into a send
+   * (or after a confirmed success). Does NOT delete backend attachment
+   * records. Resets the file input so the same file can be selected again.
    */
   private clearComposerPendingAttachments(pendingIds: string[]): void {
     if (pendingIds.length === 0) {

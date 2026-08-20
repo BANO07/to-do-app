@@ -202,5 +202,40 @@ describe('AiChatPanelComponent - Attachment UI', () => {
       expect(component.attachmentError).toBeTruthy();
       expect(aiServiceSpy.uploadAttachment).not.toHaveBeenCalled();
     });
+
+    it('upload failure keeps existing composer attachments for retry', () => {
+      const existing = makeAttachment({ id: 'att-ready', originalFilename: 'ready.pdf' });
+      component.activeConversationId = 'conv-1';
+      component.composerAttachments = [existing];
+      aiServiceSpy.uploadAttachment.and.returnValue(
+        throwError(() => ({ message: 'Upload failed' })),
+      );
+
+      const file = new File(['hello'], 'notes.txt', { type: 'text/plain' });
+      const event = {
+        target: { files: [file], value: 'C:\\fakepath\\notes.txt' },
+      } as unknown as Event;
+
+      // FileReader is async — use a sync path by stubbing readAsDataURL
+      const originalFileReader = (window as unknown as { FileReader: typeof FileReader }).FileReader;
+      class FakeReader {
+        result: string | ArrayBuffer | null = 'data:text/plain;base64,aGVsbG8=';
+        onload: ((this: FileReader, ev: ProgressEvent<FileReader>) => void) | null = null;
+        onerror: ((this: FileReader, ev: ProgressEvent<FileReader>) => void) | null = null;
+        readAsDataURL(): void {
+          this.onload?.call(this as unknown as FileReader, {} as ProgressEvent<FileReader>);
+        }
+      }
+      (window as unknown as { FileReader: unknown }).FileReader = FakeReader;
+
+      try {
+        component.onFileSelected(event);
+        expect(component.attachmentError).toContain('Upload failed');
+        expect(component.composerAttachments.length).toBe(1);
+        expect(component.composerAttachments[0].id).toBe('att-ready');
+      } finally {
+        (window as unknown as { FileReader: typeof FileReader }).FileReader = originalFileReader;
+      }
+    });
   });
 });
