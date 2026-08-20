@@ -1,0 +1,19 @@
+{
+  "name": "Todo AI Planner",
+  "short_name": "Todo AI",
+  "description": "AI-powered productivity and task management app",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f0f13",
+  "theme_color": "#6366f1",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "lang": "en"
+}

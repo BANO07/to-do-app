@@ -4,6 +4,7 @@ import { CategoriesService } from '../../categories/categories.service';
 import { DashboardService } from '../../dashboard/dashboard.service';
 import { RemindersService } from '../../tasks/reminders.service';
 import { SubtasksService } from '../../tasks/subtasks.service';
+import { CalendarEventService } from '../../calendar/calendar-event.service';
 import { TaskListView } from '../../../common/enums/task-list-view.enum';
 import { TaskStatus } from '../../../common/enums/task-status.enum';
 import { TaskPriority } from '../../../common/enums/task-priority.enum';
@@ -50,6 +51,7 @@ export class AiToolsService {
     private readonly remindersService: RemindersService,
     private readonly subtasksService: SubtasksService,
     private readonly productivityService: AiProductivityService,
+    private readonly calendarEventService: CalendarEventService,
   ) {}
 
   getToolDefinitions(): AiToolDefinition[] {
@@ -58,6 +60,10 @@ export class AiToolsService {
       this.getTaskTool(),
       this.getCategoriesTool(),
       this.getDashboardStatsTool(),
+      this.getCalendarEventsTool(),
+      this.getTodayCalendarTool(),
+      this.getUpcomingCalendarTool(),
+      this.getWeeklyReviewTool(),
       this.getProductivityInsightsTool(),
       this.getRemindersTool(),
       this.planMyDayTool(),
@@ -802,6 +808,145 @@ export class AiToolsService {
           requireString(args, 'reminderId'),
         );
         return { summary: 'Reminder deleted.' };
+      },
+    };
+  }
+
+  private getCalendarEventsTool(): AiToolDefinition {
+    return {
+      name: 'getCalendarEvents',
+      description:
+        'Fetch Google Calendar events for a date range. Requires from and to as ISO date strings (YYYY-MM-DD). Returns empty list if calendar not connected.',
+      readOnly: true,
+      destructive: false,
+      requiresConfirmation: false,
+      parametersJsonSchema: {
+        type: 'object',
+        properties: {
+          from: { type: 'string', description: 'Start date ISO string' },
+          to: { type: 'string', description: 'End date ISO string' },
+        },
+        required: ['from', 'to'],
+      },
+      execute: async (context, args) => {
+        const from = requireString(args, 'from');
+        const to = requireString(args, 'to');
+        const events = await this.calendarEventService.getEvents(
+          context.userId,
+          from,
+          to,
+        );
+        return {
+          count: events.length,
+          events: events.map((e) => ({
+            id: e.id,
+            title: e.title,
+            startAt: e.startAt.toISOString(),
+            endAt: e.endAt.toISOString(),
+            isAllDay: e.isAllDay,
+            status: e.status,
+            location: e.location,
+          })),
+        };
+      },
+    };
+  }
+
+  private getTodayCalendarTool(): AiToolDefinition {
+    return {
+      name: 'getTodayCalendar',
+      description:
+        "Fetch today's Google Calendar events in the user's timezone. Returns empty list if calendar not connected.",
+      readOnly: true,
+      destructive: false,
+      requiresConfirmation: false,
+      parametersJsonSchema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+      execute: async (context) => {
+        const events = await this.calendarEventService.getTodayEvents(
+          context.userId,
+          context.timeZone,
+        );
+        return {
+          count: events.length,
+          events: events.map((e) => ({
+            id: e.id,
+            title: e.title,
+            startAt: e.startAt.toISOString(),
+            endAt: e.endAt.toISOString(),
+            isAllDay: e.isAllDay,
+            status: e.status,
+          })),
+        };
+      },
+    };
+  }
+
+  private getUpcomingCalendarTool(): AiToolDefinition {
+    return {
+      name: 'getUpcomingCalendar',
+      description:
+        'Fetch upcoming Google Calendar events in the next N hours (default 24, max 168). Returns empty list if calendar not connected.',
+      readOnly: true,
+      destructive: false,
+      requiresConfirmation: false,
+      parametersJsonSchema: {
+        type: 'object',
+        properties: {
+          hours: {
+            type: 'number',
+            description: 'Number of hours ahead to look (1-168)',
+          },
+        },
+        required: [],
+      },
+      execute: async (context, args) => {
+        const hours = Math.min(
+          168,
+          Math.max(1, optionalNumber(args, 'hours') ?? 24),
+        );
+        const events = await this.calendarEventService.getUpcomingEvents(
+          context.userId,
+          hours,
+        );
+        return {
+          count: events.length,
+          hours,
+          events: events.map((e) => ({
+            id: e.id,
+            title: e.title,
+            startAt: e.startAt.toISOString(),
+            endAt: e.endAt.toISOString(),
+            isAllDay: e.isAllDay,
+            status: e.status,
+          })),
+        };
+      },
+    };
+  }
+
+  private getWeeklyReviewTool(): AiToolDefinition {
+    return {
+      name: 'getWeeklyReview',
+      description:
+        "Get a weekly productivity review for the current week (Monday to Sunday in the user's timezone). Returns task completion stats, carry-forward count, high-priority breakdown, and calendar events count.",
+      readOnly: true,
+      destructive: false,
+      requiresConfirmation: false,
+      parametersJsonSchema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+      execute: async (context) => {
+        const review = await this.productivityService.getWeeklyReview(
+          context.userId,
+          context.timeZone,
+        );
+        return review;
       },
     };
   }

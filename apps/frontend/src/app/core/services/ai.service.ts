@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { Apollo } from 'apollo-angular';
 import { BehaviorSubject, Observable, map, tap } from 'rxjs';
 import {
+  AiAttachment,
   AiChatInput,
   AiChatResponse,
   AiConfirmActionResponse,
@@ -10,16 +11,21 @@ import {
   AiMessagesPage,
   AiUsageStatus,
   ConfirmAiActionInput,
+  DeleteAiAttachmentInput,
+  UploadAiAttachmentInput,
 } from '../models/app.models';
 import {
   AI_CHAT_MUTATION,
+  AI_CONVERSATION_ATTACHMENTS_QUERY,
   AI_CONVERSATIONS_QUERY,
   AI_MESSAGES_QUERY,
   AI_USAGE_QUERY,
   CLEAR_AI_CONVERSATION_MUTATION,
   CONFIRM_AI_ACTION_MUTATION,
   CREATE_AI_CONVERSATION_MUTATION,
+  DELETE_AI_ATTACHMENT_MUTATION,
   DELETE_AI_CONVERSATION_MUTATION,
+  UPLOAD_AI_ATTACHMENT_MUTATION,
 } from '../graphql/operations';
 
 const ACTIVE_CONVERSATION_KEY = 'todo-app.ai.activeConversationId';
@@ -131,5 +137,33 @@ export class AiService {
         variables: { id },
       })
       .pipe(map(({ data }) => data!.clearAiConversation));
+  }
+
+  listAttachments(conversationId: string): Observable<AiAttachment[]> {
+    return this.apollo
+      .query<{ aiConversationAttachments: AiAttachment[] }>({
+        query: AI_CONVERSATION_ATTACHMENTS_QUERY,
+        variables: { conversationId },
+        fetchPolicy: 'network-only',
+      })
+      .pipe(map(({ data }) => data.aiConversationAttachments));
+  }
+
+  uploadAttachment(input: UploadAiAttachmentInput): Observable<AiAttachment> {
+    return this.apollo
+      .mutate<{ uploadAiAttachment: AiAttachment }>({
+        mutation: UPLOAD_AI_ATTACHMENT_MUTATION,
+        variables: { input },
+      })
+      .pipe(map(({ data }) => data!.uploadAiAttachment));
+  }
+
+  deleteAttachment(input: DeleteAiAttachmentInput): Observable<boolean> {
+    return this.apollo
+      .mutate<{ deleteAiAttachment: boolean }>({
+        mutation: DELETE_AI_ATTACHMENT_MUTATION,
+        variables: { input },
+      })
+      .pipe(map(({ data }) => data!.deleteAiAttachment));
   }
 }

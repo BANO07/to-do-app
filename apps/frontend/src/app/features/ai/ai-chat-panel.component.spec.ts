@@ -81,6 +81,9 @@ describe('AiChatPanelComponent voice integration', () => {
     ),
     confirmAction: jasmine.createSpy('confirmAction'),
     createConversation: jasmine.createSpy('createConversation'),
+    listAttachments: jasmine.createSpy('listAttachments').and.returnValue(of([])),
+    uploadAttachment: jasmine.createSpy('uploadAttachment'),
+    deleteAttachment: jasmine.createSpy('deleteAttachment'),
   };
 
   const voiceInput = {

@@ -81,6 +81,20 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'tasks/kanban',
+        loadComponent: () =>
+          import('./features/tasks/kanban-page/kanban-page.component').then(
+            (m) => m.KanbanPageComponent,
+          ),
+      },
+      {
+        path: 'calendar',
+        loadComponent: () =>
+          import('./features/calendar/calendar-page.component').then(
+            (m) => m.CalendarPageComponent,
+          ),
+      },
+      {
         path: 'ai',
         loadComponent: () =>
           import('./features/ai/ai-page.component').then(

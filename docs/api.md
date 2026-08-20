@@ -147,6 +147,43 @@ The model receives sixteen function declarations via `aiChat`. All tools use `@C
 
 Natural-language task/reminder requests are mapped by the model into these tools. One explicit create request should produce one `createTask` call.
 
+### File Attachments (Phase H)
+
+#### Queries
+
+```graphql
+aiConversationAttachments(conversationId: ID!): [AiAttachment!]!
+```
+
+Lists all non-deleted attachments for the authenticated user's conversation.
+
+#### Mutations
+
+```graphql
+uploadAiAttachment(input: UploadAiAttachmentInput!): AiAttachment!
+
+input UploadAiAttachmentInput {
+  conversationId: ID!
+  filename: String!        # original filename (sanitized server-side)
+  mimeType: String!        # browser-reported MIME type (validated server-side)
+  base64Data: String!      # base64-encoded file content
+}
+
+deleteAiAttachment(input: DeleteAiAttachmentInput!): Boolean!
+
+input DeleteAiAttachmentInput {
+  id: ID!
+}
+```
+
+**Security**: All operations require `GqlAuthGuard` + `@CurrentUser()`. Conversation ownership is verified before any file operation. Storage keys are UUID-based (not original filenames). Files are stored outside the public web root.
+
+**Quota**: Upload/delete/list do NOT consume AI daily quota. Only `aiChat` consumes one slot.
+
+**Supported types**: `application/pdf`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document`, `text/plain`, `text/csv`, `image/png`, `image/jpeg`, `image/webp`. Max size: `AI_ATTACHMENT_MAX_SIZE_MB` (default 10 MB).
+
+---
+
 ### Voice AI (Phase G)
 
 Voice does **not** introduce a new GraphQL API.

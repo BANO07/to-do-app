@@ -6,6 +6,7 @@ import {
   OnInit,
   ViewChild,
   inject,
+  ChangeDetectorRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -13,6 +14,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Subject, takeUntil } from 'rxjs';
 import { AiService } from '../../core/services/ai.service';
 import {
+  AiAttachment,
   AiConversation,
   AiMessage,
   AiPendingConfirmation,
@@ -41,6 +43,20 @@ const STARTER_PROMPTS = [
 
 const CONFIRMATION_TTS_PROMPT =
   'Please confirm this action on screen.';
+
+const ALLOWED_MIME_TYPES = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain',
+  'text/csv',
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+];
+
+const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.txt', '.csv', '.png', '.jpg', '.jpeg', '.webp'];
+
+const MAX_FILE_SIZE_MB = 10;
 
 @Component({
   selector: 'app-ai-chat-panel',
@@ -218,7 +234,55 @@ const CONFIRMATION_TTS_PROMPT =
               @if (ttsSpeaking) {
                 <p class="ai-panel__voice-indicator">🔊 Speaking…</p>
               }
+
+              @if (attachments.length > 0) {
+                <div class="ai-panel__attachments" aria-label="Attached files">
+                  @for (att of attachments; track att.id) {
+                    <div class="ai-panel__attachment" [class.ai-panel__attachment--uploading]="att.status === 'UPLOADING'" [class.ai-panel__attachment--failed]="att.status === 'FAILED'">
+                      <span class="ai-panel__attachment-icon">{{ attachmentIcon(att.mimeType) }}</span>
+                      <span class="ai-panel__attachment-name" [title]="att.originalFilename">{{ att.originalFilename }}</span>
+                      <span class="ai-panel__attachment-size">{{ formatSize(att.sizeBytes) }}</span>
+                      @if (att.status === 'UPLOADING') {
+                        <span class="ai-panel__attachment-status">Uploading…</span>
+                      } @else if (att.status === 'FAILED') {
+                        <span class="ai-panel__attachment-status ai-panel__attachment-status--failed">Failed</span>
+                      }
+                      <button
+                        type="button"
+                        class="btn-icon ai-panel__attachment-remove"
+                        [attr.aria-label]="'Remove ' + att.originalFilename"
+                        [disabled]="sending || confirming"
+                        (click)="removeAttachment(att)"
+                      >✕</button>
+                    </div>
+                  }
+                </div>
+              }
+              @if (attachmentError) {
+                <p class="ai-panel__state ai-panel__state--error">{{ attachmentError }}</p>
+              }
+
               <div class="ai-panel__composer-row">
+                <input
+                  #fileInput
+                  type="file"
+                  class="sr-only"
+                  [accept]="allowedFileTypes"
+                  [disabled]="!activeConversationId || uploading || sending || confirming"
+                  (change)="onFileSelected($event)"
+                  aria-hidden="true"
+                  tabindex="-1"
+                />
+                <button
+                  type="button"
+                  class="btn-icon ai-panel__attach"
+                  aria-label="Attach file"
+                  [disabled]="!activeConversationId || uploading || sending || confirming"
+                  [title]="activeConversationId ? 'Attach a file to this conversation' : 'Start a conversation to attach files'"
+                  (click)="triggerFileInput()"
+                >
+                  📎
+                </button>
                 <button
                   type="button"
                   class="btn-icon ai-panel__mic"
@@ -444,9 +508,65 @@ const CONFIRMATION_TTS_PROMPT =
       }
       .ai-panel__composer-row {
         display: grid;
-        grid-template-columns: auto 1fr auto;
+        grid-template-columns: auto auto 1fr auto;
         gap: 0.75rem;
         align-items: end;
+      }
+      .ai-panel__attach {
+        align-self: end;
+        margin-bottom: 0.35rem;
+      }
+      .ai-panel__attachments {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+        padding: 0.5rem 0;
+        border-top: 1px solid var(--border);
+      }
+      .ai-panel__attachment {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.375rem 0.5rem;
+        border-radius: 8px;
+        background: var(--surface-muted);
+        border: 1px solid var(--border);
+        font-size: 0.8125rem;
+      }
+      .ai-panel__attachment--uploading {
+        opacity: 0.7;
+      }
+      .ai-panel__attachment--failed {
+        border-color: var(--danger);
+      }
+      .ai-panel__attachment-icon {
+        font-size: 1rem;
+        flex-shrink: 0;
+      }
+      .ai-panel__attachment-name {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 200px;
+      }
+      .ai-panel__attachment-size {
+        color: var(--text-muted);
+        font-size: 0.75rem;
+        flex-shrink: 0;
+      }
+      .ai-panel__attachment-status {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        flex-shrink: 0;
+      }
+      .ai-panel__attachment-status--failed {
+        color: var(--danger);
+      }
+      .ai-panel__attachment-remove {
+        flex-shrink: 0;
+        font-size: 0.75rem;
+        padding: 0.125rem 0.25rem;
       }
       .ai-panel__composer textarea {
         width: 100%;
@@ -531,6 +651,7 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
   private readonly aiService = inject(AiService);
   private readonly shortcuts = inject(UiShortcutService);
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly cdRef = inject(ChangeDetectorRef);
   private readonly voiceInput = inject(VoiceInputService);
   private readonly voiceOutput = inject(VoiceOutputService);
   private readonly voicePreferences = inject(VoicePreferencesService);
@@ -538,6 +659,7 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
 
   @ViewChild('messagesContainer') messagesContainer?: ElementRef<HTMLElement>;
   @ViewChild('composer') composer?: ElementRef<HTMLTextAreaElement>;
+  @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
 
   open = false;
   draft = '';
@@ -547,6 +669,7 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
   conversationsLoading = false;
   errorMessage = '';
   voiceErrorMessage = '';
+  attachmentError = '';
   voiceLiveStatus = '';
   providerConfigured = true;
   usage: { dailyLimit: number; remaining: number } | null = null;
@@ -555,6 +678,10 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
   messages: AiMessage[] = [];
   activeConversationId: string | null = null;
   pendingConfirmation: AiPendingConfirmation | null = null;
+
+  attachments: AiAttachment[] = [];
+  attachmentsLoading = false;
+  uploading = false;
   latestToolCalls: AiToolCallResult[] = [];
 
   voiceSnapshot: VoiceInputSnapshot = this.voiceInput.getSnapshot();
@@ -616,6 +743,10 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
 
   get draftTooLong(): boolean {
     return this.draft.trim().length > AI_MESSAGE_MAX_LENGTH;
+  }
+
+  get allowedFileTypes(): string {
+    return ALLOWED_MIME_TYPES.join(',');
   }
 
   ngOnInit(): void {
@@ -789,8 +920,143 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
     this.aiService.setActiveConversationId(id);
     this.pendingConfirmation = null;
     this.latestToolCalls = [];
+    this.attachments = [];
+    this.attachmentError = '';
     this.voiceOutput.cancel();
     this.loadMessages(id);
+    this.loadAttachments(id);
+  }
+
+  loadAttachments(conversationId: string): void {
+    this.attachmentsLoading = true;
+    this.aiService.listAttachments(conversationId).subscribe({
+      next: (attachments) => {
+        this.attachments = attachments.filter((a) => a.status !== 'DELETED');
+        this.attachmentsLoading = false;
+      },
+      error: () => {
+        this.attachmentsLoading = false;
+      },
+    });
+  }
+
+  triggerFileInput(): void {
+    this.fileInput?.nativeElement.click();
+  }
+
+  onFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!input) {
+      return;
+    }
+    // Reset the input so the same file can be re-selected after removal
+    input.value = '';
+
+    if (!file) {
+      return;
+    }
+    if (!this.activeConversationId) {
+      return;
+    }
+
+    this.attachmentError = '';
+
+    // Client-side validation
+    const ext = '.' + (file.name.split('.').pop() ?? '').toLowerCase();
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      this.attachmentError = 'Unsupported file type.';
+      return;
+    }
+    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+      this.attachmentError = 'Unsupported file type.';
+      return;
+    }
+    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+      this.attachmentError = `File is too large. Maximum size is ${MAX_FILE_SIZE_MB} MB.`;
+      return;
+    }
+
+    this.uploading = true;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Strip "data:...;base64," prefix
+      const base64 = result.split(',')[1];
+      if (!base64 || !this.activeConversationId) {
+        this.uploading = false;
+        return;
+      }
+
+      this.aiService
+        .uploadAttachment({
+          conversationId: this.activeConversationId,
+          filename: file.name,
+          mimeType: file.type,
+          base64Data: base64,
+        })
+        .subscribe({
+          next: (attachment) => {
+            this.uploading = false;
+            this.attachments = [
+              ...this.attachments.filter((a) => a.id !== attachment.id),
+              attachment,
+            ].filter((a) => a.status !== 'DELETED');
+            this.cdRef.markForCheck();
+          },
+          error: (error) => {
+            this.uploading = false;
+            this.attachmentError =
+              error?.graphQLErrors?.[0]?.message ??
+              error?.message ??
+              'Unable to upload file.';
+            this.cdRef.markForCheck();
+          },
+        });
+    };
+    reader.onerror = () => {
+      this.uploading = false;
+      this.attachmentError = 'Unable to read file.';
+    };
+    reader.readAsDataURL(file);
+  }
+
+  removeAttachment(attachment: AiAttachment): void {
+    this.attachmentError = '';
+    this.aiService.deleteAttachment({ id: attachment.id }).subscribe({
+      next: () => {
+        this.attachments = this.attachments.filter((a) => a.id !== attachment.id);
+      },
+      error: () => {
+        this.attachmentError = 'Unable to remove attachment.';
+      },
+    });
+  }
+
+  attachmentIcon(mimeType: string): string {
+    if (mimeType.startsWith('image/')) {
+      return '🖼';
+    }
+    if (mimeType === 'application/pdf') {
+      return '📄';
+    }
+    if (mimeType.includes('wordprocessingml')) {
+      return '📝';
+    }
+    if (mimeType === 'text/csv') {
+      return '📊';
+    }
+    return '📎';
+  }
+
+  formatSize(bytes: number): string {
+    if (bytes < 1024) {
+      return `${bytes} B`;
+    }
+    if (bytes < 1024 * 1024) {
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   loadMessages(conversationId: string): void {

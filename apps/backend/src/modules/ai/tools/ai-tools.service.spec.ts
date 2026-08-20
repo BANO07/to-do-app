@@ -6,6 +6,7 @@ import { DashboardService } from '../../dashboard/dashboard.service';
 import { RemindersService } from '../../tasks/reminders.service';
 import { SubtasksService } from '../../tasks/subtasks.service';
 import { AiProductivityService } from '../productivity/ai-productivity.service';
+import { CalendarEventService } from '../../calendar/calendar-event.service';
 
 describe('AiToolsService', () => {
   let service: AiToolsService;
@@ -42,6 +43,7 @@ describe('AiToolsService', () => {
   const productivityService = {
     planDay: jest.fn(),
     getInsights: jest.fn(),
+    getWeeklyReview: jest.fn(),
     toTaskSnapshot: jest.fn((task: Record<string, unknown>, _tz: string) => ({
       id: task.id,
       title: task.title,
@@ -57,6 +59,12 @@ describe('AiToolsService', () => {
     })),
   };
 
+  const calendarEventService = {
+    getEvents: jest.fn(),
+    getTodayEvents: jest.fn(),
+    getUpcomingEvents: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -69,16 +77,21 @@ describe('AiToolsService', () => {
         { provide: RemindersService, useValue: remindersService },
         { provide: SubtasksService, useValue: subtasksService },
         { provide: AiProductivityService, useValue: productivityService },
+        { provide: CalendarEventService, useValue: calendarEventService },
       ],
     }).compile();
 
     service = module.get(AiToolsService);
   });
 
-  it('exposes all required tools including productivity intelligence tools', () => {
+  it('exposes all required tools including calendar and weekly review tools', () => {
     const names = service.getToolDefinitions().map((tool) => tool.name);
     expect(names).toEqual(
       expect.arrayContaining([
+        'getCalendarEvents',
+        'getTodayCalendar',
+        'getUpcomingCalendar',
+        'getWeeklyReview',
         'getTasks',
         'getTask',
         'getCategories',
@@ -97,7 +110,7 @@ describe('AiToolsService', () => {
         'deleteReminder',
       ]),
     );
-    expect(names).toHaveLength(16);
+    expect(names).toHaveLength(20); // 16 original + 4 new: getCalendarEvents, getTodayCalendar, getUpcomingCalendar, getWeeklyReview
   });
 
   it('uses authenticated user for getTasks', async () => {
@@ -269,5 +282,50 @@ describe('AiToolsService', () => {
       }),
       'Asia/Kolkata',
     );
+  });
+
+  describe('calendar tools — ownership enforcement', () => {
+    const ctx = { userId: 'user-99', timeZone: 'UTC', conversationId: 'conv-1' };
+
+    it('getCalendarEvents passes userId from context, not from args', async () => {
+      calendarEventService.getEvents.mockResolvedValue([]);
+      await service.executeTool(ctx, 'call-cal-1', 'getCalendarEvents', {
+        from: '2026-08-01',
+        to: '2026-08-31',
+      });
+      expect(calendarEventService.getEvents).toHaveBeenCalledWith(
+        'user-99',
+        '2026-08-01',
+        '2026-08-31',
+      );
+    });
+
+    it('getTodayCalendar uses userId from context', async () => {
+      calendarEventService.getTodayEvents.mockResolvedValue([]);
+      await service.executeTool(ctx, 'call-cal-2', 'getTodayCalendar', {});
+      expect(calendarEventService.getTodayEvents).toHaveBeenCalledWith(
+        'user-99',
+        'UTC',
+      );
+    });
+
+    it('getUpcomingCalendar uses default 24 hours when not specified', async () => {
+      calendarEventService.getUpcomingEvents.mockResolvedValue([]);
+      await service.executeTool(ctx, 'call-cal-3', 'getUpcomingCalendar', {});
+      expect(calendarEventService.getUpcomingEvents).toHaveBeenCalledWith('user-99', 24);
+    });
+
+    it('getUpcomingCalendar caps at 168 hours max', async () => {
+      calendarEventService.getUpcomingEvents.mockResolvedValue([]);
+      await service.executeTool(ctx, 'call-cal-4', 'getUpcomingCalendar', { hours: 999 });
+      expect(calendarEventService.getUpcomingEvents).toHaveBeenCalledWith('user-99', 168);
+    });
+
+    it('getWeeklyReview delegates to productivityService with user context', async () => {
+      productivityService.getWeeklyReview.mockResolvedValue({ tasksCompleted: 5 });
+      const result = await service.executeTool(ctx, 'call-wr-1', 'getWeeklyReview', {});
+      expect(productivityService.getWeeklyReview).toHaveBeenCalledWith('user-99', 'UTC');
+      expect(result.data).toEqual(expect.objectContaining({ tasksCompleted: 5 }));
+    });
   });
 });

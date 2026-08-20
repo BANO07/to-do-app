@@ -1,3 +1,21 @@
+/* ==================== DESIGN TOKENS ==================== */
+
+/* Surface style tokens — defaults to Glass (transparent) */
+:root {
+  /* Card style: glass | solid | frosted | minimal */
+  --card-style: glass;
+  /* Blur intensity: none | low | medium | high */
+  --blur-intensity: medium;
+  /* Font family token */
+  --font-sans: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  /* Border radius tokens */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+}
+
 :root,
 [data-theme='light'] {
   color-scheme: light;
@@ -14,15 +32,20 @@
   --topbar-padding: 1rem 1.25rem;
   --bg: #f8fafc;
   --bg-overlay: rgba(248, 250, 252, 0.72);
+  /* Base surface (overridden by card style) */
   --surface: rgba(255, 255, 255, 0.82);
   --surface-muted: rgba(241, 245, 249, 0.75);
+  --surface-elevated: rgba(255, 255, 255, 0.95);
   --border: rgba(226, 232, 240, 0.9);
   --border-strong: #cbd5e1;
   --text-primary: #0f172a;
   --text-muted: #64748b;
+  --text-icon: #475569;
   --primary: #6366f1;
   --primary-soft: rgba(238, 242, 255, 0.9);
   --danger: #ef4444;
+  --success: #22c55e;
+  --warning: #f59e0b;
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
   --shadow-md: 0 10px 25px rgba(15, 23, 42, 0.08);
   --shadow-lg: 0 20px 40px rgba(15, 23, 42, 0.12);
@@ -30,6 +53,9 @@
   --skeleton-shine: #f8fafc;
   --glass-blur: blur(14px);
   --input-bg: rgba(255, 255, 255, 0.9);
+  --input-border: rgba(226, 232, 240, 0.9);
+  --icon-color: #475569;
+  --icon-active: var(--primary);
 }
 
 [data-theme='dark'] {
@@ -38,13 +64,17 @@
   --bg-overlay: rgba(11, 15, 26, 0.75);
   --surface: rgba(255, 255, 255, 0.06);
   --surface-muted: rgba(255, 255, 255, 0.04);
+  --surface-elevated: rgba(255, 255, 255, 0.09);
   --border: rgba(255, 255, 255, 0.1);
   --border-strong: rgba(255, 255, 255, 0.18);
   --text-primary: #f1f5f9;
   --text-muted: #94a3b8;
+  --text-icon: #94a3b8;
   --primary: #818cf8;
   --primary-soft: rgba(99, 102, 241, 0.18);
   --danger: #f87171;
+  --success: #4ade80;
+  --warning: #fbbf24;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.35);
   --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.45);
@@ -52,7 +82,98 @@
   --skeleton-shine: rgba(255, 255, 255, 0.14);
   --glass-blur: blur(16px);
   --input-bg: rgba(255, 255, 255, 0.06);
+  --input-border: rgba(255, 255, 255, 0.1);
+  --icon-color: #94a3b8;
+  --icon-active: var(--primary);
 }
+
+/* ==================== CARD STYLE TOKENS ==================== */
+
+/* GLASS (default) — transparent surfaces with blur */
+[data-card-style='glass'],
+:root {
+  --surface: rgba(255, 255, 255, 0.82);
+  --surface-muted: rgba(241, 245, 249, 0.75);
+}
+[data-theme='dark'][data-card-style='glass'],
+[data-theme='dark']:not([data-card-style]) {
+  --surface: rgba(255, 255, 255, 0.06);
+  --surface-muted: rgba(255, 255, 255, 0.04);
+}
+
+/* SOLID — fully opaque, no blur */
+[data-card-style='solid'] {
+  --surface: #ffffff;
+  --surface-muted: #f1f5f9;
+  --glass-blur: blur(0px);
+}
+[data-theme='dark'][data-card-style='solid'] {
+  --surface: #1e293b;
+  --surface-muted: #0f172a;
+  --glass-blur: blur(0px);
+}
+
+/* FROSTED — stronger blur, more translucent */
+[data-card-style='frosted'] {
+  --surface: rgba(255, 255, 255, 0.65);
+  --surface-muted: rgba(255, 255, 255, 0.45);
+  --glass-blur: blur(24px);
+}
+[data-theme='dark'][data-card-style='frosted'] {
+  --surface: rgba(255, 255, 255, 0.10);
+  --surface-muted: rgba(255, 255, 255, 0.06);
+  --glass-blur: blur(28px);
+}
+
+/* MINIMAL — flat surfaces, minimal decoration */
+[data-card-style='minimal'] {
+  --surface: rgba(255, 255, 255, 0.95);
+  --surface-muted: rgba(248, 250, 252, 0.98);
+  --glass-blur: blur(0px);
+  --shadow-sm: none;
+  --shadow-md: 0 1px 3px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 4px 12px rgba(15, 23, 42, 0.10);
+  --border: rgba(226, 232, 240, 1);
+}
+[data-theme='dark'][data-card-style='minimal'] {
+  --surface: #1e293b;
+  --surface-muted: #0f172a;
+  --glass-blur: blur(0px);
+  --shadow-sm: none;
+  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --border: rgba(255, 255, 255, 0.12);
+}
+
+/* ==================== BLUR/EFFECTS TOKENS ==================== */
+
+/* Override glass-blur for Solid/Minimal card styles — already handled above.
+   For Glass/Frosted, let blur-intensity override */
+[data-blur-intensity='none'] {
+  --glass-blur: blur(0px);
+}
+[data-blur-intensity='low'] {
+  --glass-blur: blur(6px);
+}
+[data-blur-intensity='medium'] {
+  --glass-blur: blur(14px);
+}
+[data-blur-intensity='high'] {
+  --glass-blur: blur(28px);
+}
+/* Solid/Minimal always force no blur regardless of intensity */
+[data-card-style='solid'],
+[data-card-style='minimal'] {
+  --glass-blur: blur(0px) !important;
+}
+
+/* ==================== FONT TOKENS ==================== */
+
+[data-font='system'] { --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+[data-font='inter'] { --font-sans: Inter, system-ui, sans-serif; }
+[data-font='poppins'] { --font-sans: Poppins, system-ui, sans-serif; }
+[data-font='nunito'] { --font-sans: Nunito, system-ui, sans-serif; }
+[data-font='mono'] { --font-sans: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; }
 
 /* Ocean palette */
 [data-palette='ocean'][data-theme='light'] {
@@ -119,12 +240,15 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans, Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
   color: var(--text-primary);
   background: var(--bg);
   overflow-x: hidden;
   transition: background-color 0.3s ease, color 0.3s ease;
 }
+
+/* Ensure icon fonts / monospace code areas are not overridden */
+code, pre, kbd, samp { font-family: var(--font-mono, 'Consolas', monospace); }
 
 button,
 input,
@@ -236,6 +360,65 @@ select option:hover {
 
 a {
   color: inherit;
+}
+
+/* ==================== ICON SYSTEM ==================== */
+/* Icons pick up --icon-color by default; active/selected icons use --icon-active */
+.icon { color: var(--icon-color); }
+.icon--active { color: var(--icon-active); }
+.icon--muted { color: var(--text-muted); }
+.icon--danger { color: var(--danger); }
+.icon--success { color: var(--success); }
+
+/* ==================== STATUS BADGES ==================== */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.badge--todo { background: var(--surface-muted); color: var(--text-muted); border: 1px solid var(--border); }
+.badge--in-progress { background: rgba(99, 102, 241, 0.12); color: var(--primary); border: 1px solid rgba(99, 102, 241, 0.2); }
+.badge--completed { background: rgba(34, 197, 94, 0.12); color: var(--success); border: 1px solid rgba(34, 197, 94, 0.2); }
+.badge--archived { background: rgba(100, 116, 139, 0.12); color: var(--text-muted); border: 1px solid var(--border); }
+.badge--urgent { background: rgba(239, 68, 68, 0.12); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.2); }
+.badge--high { background: rgba(245, 158, 11, 0.12); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.2); }
+
+/* ==================== FOCUS INDICATORS ==================== */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ==================== MOBILE / RESPONSIVE ==================== */
+@media (max-width: 768px) {
+  :root {
+    --sidebar-width: 0px;
+    --content-padding: 1rem;
+    --task-card-padding: 0.875rem;
+    --topbar-padding: 0.75rem 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    --content-padding: 0.75rem;
+    --task-card-padding: 0.75rem;
+  }
+}
+
+/* ==================== GLASSMORPHISM FALLBACK ==================== */
+@supports not (backdrop-filter: blur(1px)) {
+  .glass-panel {
+    background: var(--surface-elevated, rgba(255, 255, 255, 0.97)) !important;
+  }
+  [data-theme='dark'] .glass-panel {
+    background: rgba(30, 41, 59, 0.97) !important;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

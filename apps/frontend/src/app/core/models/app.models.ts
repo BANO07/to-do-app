@@ -359,6 +359,63 @@ export interface ConfirmAiActionInput {
   confirmationId: string;
 }
 
+export type AiAttachmentStatus = 'UPLOADING' | 'READY' | 'FAILED' | 'DELETED';
+
+export interface AiAttachment {
+  id: string;
+  conversationId?: string;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: AiAttachmentStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UploadAiAttachmentInput {
+  conversationId: string;
+  filename: string;
+  mimeType: string;
+  base64Data: string;
+}
+
+export interface DeleteAiAttachmentInput {
+  id: string;
+}
+
+// ── Calendar integration ──────────────────────────────────────────────────
+export type CalendarConnectionStatusEnum = 'ACTIVE' | 'REVOKED' | 'EXPIRED';
+export type CalendarEventStatusEnum = 'CONFIRMED' | 'TENTATIVE' | 'CANCELLED';
+
+export interface CalendarConnectionStatus {
+  connected: boolean;
+  providerAccountId?: string | null;
+  connectedAt?: string | null;
+  lastSyncedAt?: string | null;
+}
+
+export interface CalendarEvent {
+  id: string;
+  providerEventId: string;
+  calendarId: string;
+  title: string;
+  description?: string | null;
+  startAt: string;
+  endAt: string;
+  isAllDay: boolean;
+  timezone?: string | null;
+  location?: string | null;
+  status: CalendarEventStatusEnum;
+  recurrenceId?: string | null;
+  syncedAt: string;
+}
+
+export interface SyncCalendarResult {
+  success: boolean;
+  eventsUpserted: number;
+  message?: string | null;
+}
+
 export const RECURRENCE_LABELS: Record<RecurrenceFrequency | 'NEVER', string> = {
   NEVER: 'Never',
   DAILY: 'Daily',

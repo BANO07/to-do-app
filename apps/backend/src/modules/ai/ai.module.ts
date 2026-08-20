@@ -5,6 +5,7 @@ import { AI_PROVIDER } from './ai.tokens';
 import { AiUsage } from './entities/ai-usage.entity';
 import { AiConversation } from './entities/ai-conversation.entity';
 import { AiMessage } from './entities/ai-message.entity';
+import { AiAttachment } from './entities/ai-attachment.entity';
 import { AiUsageRepository } from './ai-usage.repository';
 import { AiConversationRepository } from './ai-conversation.repository';
 import { AIUsageService } from './ai-usage.service';
@@ -18,16 +19,24 @@ import { AiProductivityService } from './productivity/ai-productivity.service';
 import { AiResolver } from './ai.resolver';
 import { GeminiProvider } from './providers/gemini.provider';
 import { UnavailableAiProvider } from './providers/unavailable-ai.provider';
+import { AiAttachmentRepository } from './attachments/ai-attachment.repository';
+import { AiAttachmentService } from './attachments/ai-attachment.service';
+import { AiAttachmentResolver } from './attachments/ai-attachment.resolver';
+import { AttachmentContentExtractor } from './attachments/attachment-content-extractor';
+import { LocalAttachmentStorage } from './attachments/local-attachment-storage';
+import { ATTACHMENT_STORAGE } from './attachments/attachment-storage.interface';
 import { TasksModule } from '../tasks/tasks.module';
 import { CategoriesModule } from '../categories/categories.module';
 import { DashboardModule } from '../dashboard/dashboard.module';
+import { CalendarModule } from '../calendar/calendar.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([AiUsage, AiConversation, AiMessage]),
+    TypeOrmModule.forFeature([AiUsage, AiConversation, AiMessage, AiAttachment]),
     TasksModule,
     CategoriesModule,
     DashboardModule,
+    CalendarModule,
   ],
   providers: [
     AiUsageRepository,
@@ -43,6 +52,15 @@ import { DashboardModule } from '../dashboard/dashboard.module';
     AiResolver,
     GeminiProvider,
     UnavailableAiProvider,
+    AiAttachmentRepository,
+    AiAttachmentService,
+    AiAttachmentResolver,
+    AttachmentContentExtractor,
+    LocalAttachmentStorage,
+    {
+      provide: ATTACHMENT_STORAGE,
+      useClass: LocalAttachmentStorage,
+    },
     {
       provide: AI_PROVIDER,
       inject: [ConfigService, GeminiProvider, UnavailableAiProvider],
@@ -56,6 +74,6 @@ import { DashboardModule } from '../dashboard/dashboard.module';
       },
     },
   ],
-  exports: [AIService, AIUsageService],
+  exports: [AIService, AIUsageService, AiAttachmentService],
 })
 export class AiModule {}

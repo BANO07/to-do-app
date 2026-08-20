@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import webpush from 'web-push';
+import * as webpush from 'web-push';
 import { PushPayload, PushProvider, PushTarget } from './push-provider.interface';
 
 @Injectable()

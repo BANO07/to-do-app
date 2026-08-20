@@ -42,6 +42,16 @@ export class GraphqlExceptionFilter implements GqlExceptionFilter {
       );
     }
 
+    // PayloadTooLargeError from Express body-parser (e.g. large file upload)
+    if (
+      exception instanceof Error &&
+      (exception as Error & { type?: string }).type === 'entity.too.large'
+    ) {
+      return new GraphQLError('File is too large. Please upload a smaller file.', {
+        extensions: { code: HttpStatus.PAYLOAD_TOO_LARGE },
+      });
+    }
+
     this.logger.error('Unhandled exception', exception);
 
     return new GraphQLError('Something went wrong. Please try again.', {

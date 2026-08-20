@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Task } from '../../tasks/entities/task.entity';
 import { TasksService } from '../../tasks/tasks.service';
 import { DashboardService } from '../../dashboard/dashboard.service';
+import { CalendarEventService } from '../../calendar/calendar-event.service';
 import { TaskListView } from '../../../common/enums/task-list-view.enum';
 import { TaskPriority } from '../../../common/enums/task-priority.enum';
 import { TaskStatus } from '../../../common/enums/task-status.enum';
@@ -33,6 +34,7 @@ export class AiProductivityService {
   constructor(
     private readonly tasksService: TasksService,
     private readonly dashboardService: DashboardService,
+    private readonly calendarEventService: CalendarEventService,
   ) {}
 
   async planDay(userId: string, timeZone?: string): Promise<DayPlanResult> {
@@ -349,6 +351,125 @@ export class AiProductivityService {
     }
 
     return completedYmd >= weekStartYmd && completedYmd <= todayYmd;
+  }
+
+  async getWeeklyReview(
+    userId: string,
+    timeZone?: string,
+  ): Promise<Record<string, unknown>> {
+    const tz = normalizeTimeZone(timeZone);
+    const now = new Date();
+    const todayYmd = formatYmd(now, tz);
+
+    // Week: Monday to Sunday
+    const dayOfWeek = now.getDay(); // 0=Sun, 1=Mon...
+    const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const weekStartYmd = addDaysYmd(todayYmd, -daysFromMonday);
+    const weekEndYmd = addDaysYmd(weekStartYmd, 6);
+
+    const weekStartDate = new Date(weekStartYmd + 'T12:00:00Z');
+    const weekEndDate = new Date(weekEndYmd + 'T12:00:00Z');
+    const weekStartBounds = getZonedDayBounds(weekStartDate, tz);
+    const weekEndBounds = getZonedDayBounds(weekEndDate, tz);
+
+    const [dashboard, allTasksResult] = await Promise.all([
+      this.dashboardService.getSummary(userId, tz),
+      this.tasksService.findAll(
+        userId,
+        { view: TaskListView.ALL, limit: 500, page: 1 },
+        tz,
+      ),
+    ]);
+
+    const tasks = allTasksResult.items;
+
+    let tasksCompleted = 0;
+    let tasksCreated = 0;
+    let highPriorityCompleted = 0;
+    let highPriorityOpen = 0;
+    let recurringCompleted = 0;
+    let carryForwardCount = 0;
+
+    const categoryCompletions: Map<string, { name: string; count: number }> = new Map();
+
+    for (const task of tasks) {
+      // Tasks completed this week
+      if (
+        task.completedAt &&
+        task.completedAt >= weekStartBounds.start &&
+        task.completedAt < weekEndBounds.endExclusive
+      ) {
+        tasksCompleted++;
+        if (
+          task.priority === TaskPriority.HIGH ||
+          task.priority === TaskPriority.URGENT
+        ) {
+          highPriorityCompleted++;
+        }
+        if (task.recurrence?.frequency) {
+          recurringCompleted++;
+        }
+        // Category breakdown
+        const catKey = task.categoryId ?? '__none__';
+        const catName = task.category?.name ?? 'Uncategorized';
+        const existing = categoryCompletions.get(catKey);
+        categoryCompletions.set(catKey, {
+          name: catName,
+          count: (existing?.count ?? 0) + 1,
+        });
+      }
+
+      // Tasks created this week (approximate by checking createdAt if available, else skip)
+      // We don't have a createdAt on Task visible here — skip for now
+
+      // High priority open
+      if (
+        task.status !== TaskStatus.COMPLETED &&
+        task.status !== TaskStatus.ARCHIVED &&
+        (task.priority === TaskPriority.HIGH || task.priority === TaskPriority.URGENT)
+      ) {
+        highPriorityOpen++;
+      }
+
+      // Carry-forward: due before today, not completed, not archived
+      if (
+        task.dueDate &&
+        formatYmd(task.dueDate, tz) < todayYmd &&
+        task.status !== TaskStatus.COMPLETED &&
+        task.status !== TaskStatus.ARCHIVED
+      ) {
+        carryForwardCount++;
+      }
+    }
+
+    // Calendar events count for the week (best-effort — empty if not connected)
+    let calendarEventsCount = 0;
+    try {
+      calendarEventsCount = await this.calendarEventService.countEventsInWeek(
+        userId,
+        weekStartBounds.start,
+        weekEndBounds.endExclusive,
+      );
+    } catch {
+      // Non-fatal — calendar may not be connected
+    }
+
+    return {
+      weekStart: weekStartYmd,
+      weekEnd: weekEndYmd,
+      tasksCompleted,
+      tasksCreated: null, // No createdAt in Task entity — reported as null
+      overdueCount: dashboard.overdueCount,
+      completionRate: dashboard.completionPercentage,
+      carryForwardCount,
+      highPriorityCompleted,
+      highPriorityOpen,
+      recurringTasksCompleted: recurringCompleted,
+      categoryBreakdown: [...categoryCompletions.values()].sort(
+        (a, b) => b.count - a.count,
+      ),
+      calendarEventsCount,
+    };
   }
 
   private buildInsightsSummary(

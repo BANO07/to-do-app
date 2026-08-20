@@ -83,6 +83,23 @@ export const validateEnv = (config: Record<string, unknown>) => {
       'AI_RATE_LIMIT_PER_MINUTE',
       10,
     ),
+    AI_ATTACHMENT_MAX_SIZE_MB: parsePositiveInt(
+      config.AI_ATTACHMENT_MAX_SIZE_MB,
+      'AI_ATTACHMENT_MAX_SIZE_MB',
+      10,
+    ),
+    AI_ATTACHMENT_MAX_TEXT_CHARS: parsePositiveInt(
+      config.AI_ATTACHMENT_MAX_TEXT_CHARS,
+      'AI_ATTACHMENT_MAX_TEXT_CHARS',
+      50_000,
+    ),
+    AI_GRAPHQL_BODY_LIMIT_MB: parsePositiveInt(
+      config.AI_GRAPHQL_BODY_LIMIT_MB,
+      'AI_GRAPHQL_BODY_LIMIT_MB',
+      15,
+    ),
+    // Calendar integration
+    CALENDAR_TOKEN_ENCRYPTION_KEY: optionalString(config.CALENDAR_TOKEN_ENCRYPTION_KEY),
   };
 };
 

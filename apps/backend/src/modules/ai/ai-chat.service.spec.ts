@@ -6,6 +6,8 @@ import { AIUsageService } from './ai-usage.service';
 import { AIConversationService } from './ai-conversation.service';
 import { AiConfirmationService } from './ai-confirmation.service';
 import { AiToolsService } from './tools/ai-tools.service';
+import { AiAttachmentService } from './attachments/ai-attachment.service';
+import { AttachmentContentExtractor } from './attachments/attachment-content-extractor';
 import { AiMessageRole } from '../../common/enums/ai-message-role.enum';
 import { AiProviderUnavailableException } from './exceptions/ai.exceptions';
 import { AiLimitReachedException } from './exceptions/ai.exceptions';
@@ -101,6 +103,14 @@ describe('AiChatService', () => {
     });
     aiUsageService.consumeDailyRequest.mockResolvedValue(1);
 
+    const mockAttachmentService = {
+      getReadyAttachmentsForConversation: jest.fn().mockResolvedValue([]),
+      getAttachmentData: jest.fn().mockResolvedValue(null),
+    };
+    const mockContentExtractor = {
+      extract: jest.fn().mockResolvedValue({ text: '', truncated: false, isImage: false }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AiChatService,
@@ -110,6 +120,8 @@ describe('AiChatService', () => {
         { provide: AIConversationService, useValue: conversationService },
         { provide: AiConfirmationService, useValue: confirmationService },
         { provide: AiToolsService, useValue: toolsService },
+        { provide: AiAttachmentService, useValue: mockAttachmentService },
+        { provide: AttachmentContentExtractor, useValue: mockContentExtractor },
       ],
     }).compile();
 
@@ -292,5 +304,188 @@ describe('AiChatService', () => {
     expect(response.completed).toBe(true);
     expect(response.toolResult.summary).toBe('Task deleted.');
     expect(aiUsageService.consumeDailyRequest).not.toHaveBeenCalled();
+  });
+
+  describe('multimodal image attachment integration', () => {
+    const makeModule = async (
+      attachments: unknown[],
+      fileData: { data: Buffer } | null,
+      extraction: unknown,
+    ) => {
+      jest.clearAllMocks();
+      toolsService.getToolDefinitions.mockReturnValue([]);
+      conversationService.getConversationForUser.mockResolvedValue({
+        id: 'conv-1',
+        userId: 'user-1',
+      });
+      conversationService.addMessage.mockImplementation(async (input) => ({
+        id: `msg-${Math.random()}`,
+        ...input,
+        createdAt: new Date(),
+      }));
+      conversationService.getRecentMessagesForContext.mockResolvedValue([
+        { role: AiMessageRole.USER, content: 'What is in this image?' },
+      ]);
+      aiService.isProviderConfigured.mockReturnValue(true);
+      aiService.getUsage.mockResolvedValue({
+        dailyLimit: 20, used: 1, remaining: 19, resetAt: new Date(),
+      });
+      aiUsageService.consumeDailyRequest.mockResolvedValue(1);
+
+      const mockAttachmentService = {
+        getReadyAttachmentsForConversation: jest.fn().mockResolvedValue(attachments),
+        getAttachmentData: jest.fn().mockResolvedValue(fileData),
+      };
+      const mockContentExtractor = {
+        extract: jest.fn().mockResolvedValue(extraction),
+      };
+
+      aiProvider.generateChat.mockResolvedValue({ text: 'I see a cat.' });
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          AiChatService,
+          { provide: AI_PROVIDER, useValue: aiProvider },
+          { provide: AIService, useValue: aiService },
+          { provide: AIUsageService, useValue: aiUsageService },
+          { provide: AIConversationService, useValue: conversationService },
+          { provide: AiConfirmationService, useValue: confirmationService },
+          { provide: AiToolsService, useValue: toolsService },
+          { provide: AiAttachmentService, useValue: mockAttachmentService },
+          { provide: AttachmentContentExtractor, useValue: mockContentExtractor },
+        ],
+      }).compile();
+
+      return {
+        svc: module.get(AiChatService),
+        attachmentService: mockAttachmentService,
+        extractor: mockContentExtractor,
+      };
+    };
+
+    it('passes PNG image bytes as imageParts to the AI provider', async () => {
+      const imageBuffer = Buffer.from('fake-png-bytes');
+      const { svc } = await makeModule(
+        [{ id: 'att-1', mimeType: 'image/png', originalFilename: 'photo.png', sizeBytes: 100 }],
+        { data: imageBuffer },
+        { text: '', truncated: false, isImage: true, imageBase64: imageBuffer.toString('base64'), imageMimeType: 'image/png' },
+      );
+
+      await svc.chat('user-1', 'conv-1', 'What is in this image?', 'UTC');
+
+      const call = aiProvider.generateChat.mock.calls[0][0] as { imageParts: Array<{ mimeType: string; base64: string }> };
+      expect(call.imageParts).toBeDefined();
+      expect(call.imageParts).toHaveLength(1);
+      expect(call.imageParts[0].mimeType).toBe('image/png');
+      expect(call.imageParts[0].base64).toBe(imageBuffer.toString('base64'));
+    });
+
+    it('preserves JPEG MIME type when passing image to provider', async () => {
+      const imageBuffer = Buffer.from('fake-jpg-bytes');
+      const { svc } = await makeModule(
+        [{ id: 'att-2', mimeType: 'image/jpeg', originalFilename: 'photo.jpg', sizeBytes: 200 }],
+        { data: imageBuffer },
+        { text: '', truncated: false, isImage: true, imageBase64: imageBuffer.toString('base64'), imageMimeType: 'image/jpeg' },
+      );
+
+      await svc.chat('user-1', 'conv-1', 'Describe.', 'UTC');
+
+      const call = aiProvider.generateChat.mock.calls[0][0] as { imageParts: Array<{ mimeType: string }> };
+      expect(call.imageParts[0].mimeType).toBe('image/jpeg');
+    });
+
+    it('preserves WebP MIME type when passing image to provider', async () => {
+      const imageBuffer = Buffer.from('fake-webp-bytes');
+      const { svc } = await makeModule(
+        [{ id: 'att-3', mimeType: 'image/webp', originalFilename: 'photo.webp', sizeBytes: 150 }],
+        { data: imageBuffer },
+        { text: '', truncated: false, isImage: true, imageBase64: imageBuffer.toString('base64'), imageMimeType: 'image/webp' },
+      );
+
+      await svc.chat('user-1', 'conv-1', 'Analyze.', 'UTC');
+
+      const call = aiProvider.generateChat.mock.calls[0][0] as { imageParts: Array<{ mimeType: string }> };
+      expect(call.imageParts[0].mimeType).toBe('image/webp');
+    });
+
+    it('does NOT pass image data as textual note in system instruction', async () => {
+      const imageBuffer = Buffer.from('fake-png-bytes');
+      const { svc } = await makeModule(
+        [{ id: 'att-1', mimeType: 'image/png', originalFilename: 'photo.png', sizeBytes: 100 }],
+        { data: imageBuffer },
+        { text: '', truncated: false, isImage: true, imageBase64: imageBuffer.toString('base64'), imageMimeType: 'image/png' },
+      );
+
+      await svc.chat('user-1', 'conv-1', 'What is in this image?', 'UTC');
+
+      const call = aiProvider.generateChat.mock.calls[0][0] as { systemInstruction: string };
+      expect(call.systemInstruction).not.toContain('image content is not directly embedded');
+      expect(call.systemInstruction).not.toContain('fake-png-bytes');
+    });
+
+    it('loads image bytes from AttachmentStorage (not from DB)', async () => {
+      const imageBuffer = Buffer.from('real-image-data');
+      const { svc, attachmentService } = await makeModule(
+        [{ id: 'att-1', mimeType: 'image/png', originalFilename: 'real.png', sizeBytes: 100 }],
+        { data: imageBuffer },
+        { text: '', truncated: false, isImage: true, imageBase64: imageBuffer.toString('base64'), imageMimeType: 'image/png' },
+      );
+
+      await svc.chat('user-1', 'conv-1', 'Show me.', 'UTC');
+
+      expect(attachmentService.getAttachmentData).toHaveBeenCalledWith('user-1', 'att-1');
+    });
+
+    it('sends no imageParts when no attachments', async () => {
+      const { svc } = await makeModule([], null, { text: '', truncated: false, isImage: false });
+
+      await svc.chat('user-1', 'conv-1', 'Hello.', 'UTC');
+
+      const call = aiProvider.generateChat.mock.calls[0][0] as { imageParts?: unknown[] };
+      expect(call.imageParts == null || call.imageParts.length === 0).toBe(true);
+    });
+
+    it('sends no imageParts when attachment data cannot be loaded', async () => {
+      const { svc } = await makeModule(
+        [{ id: 'att-1', mimeType: 'image/png', originalFilename: 'photo.png', sizeBytes: 100 }],
+        null, // getAttachmentData returns null
+        { text: '', truncated: false, isImage: false },
+      );
+
+      await svc.chat('user-1', 'conv-1', 'Hello.', 'UTC');
+
+      const call = aiProvider.generateChat.mock.calls[0][0] as { imageParts?: unknown[] };
+      expect(call.imageParts == null || call.imageParts.length === 0).toBe(true);
+    });
+
+    it('passes text extraction (PDF) unchanged alongside empty imageParts', async () => {
+      const { svc } = await makeModule(
+        [{ id: 'att-1', mimeType: 'application/pdf', originalFilename: 'report.pdf', sizeBytes: 500 }],
+        { data: Buffer.from('pdf-bytes') },
+        { text: 'PDF content here', truncated: false, isImage: false },
+      );
+
+      await svc.chat('user-1', 'conv-1', 'Summarize.', 'UTC');
+
+      const call = aiProvider.generateChat.mock.calls[0][0] as {
+        systemInstruction: string;
+        imageParts?: unknown[];
+      };
+      expect(call.systemInstruction).toContain('PDF content here');
+      expect(call.imageParts == null || call.imageParts.length === 0).toBe(true);
+    });
+
+    it('quota is consumed exactly once per chat with image attachment', async () => {
+      const imageBuffer = Buffer.from('img');
+      const { svc } = await makeModule(
+        [{ id: 'att-1', mimeType: 'image/png', originalFilename: 'a.png', sizeBytes: 50 }],
+        { data: imageBuffer },
+        { text: '', truncated: false, isImage: true, imageBase64: 'aW1n', imageMimeType: 'image/png' },
+      );
+
+      await svc.chat('user-1', 'conv-1', 'Analyze.', 'UTC');
+
+      expect(aiUsageService.consumeDailyRequest).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -2,10 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   Content,
+  createPartFromBase64,
   createPartFromFunctionResponse,
   createPartFromText,
   FunctionDeclaration,
   GoogleGenAI,
+  Part,
 } from '@google/genai';
 import {
   AIProvider,
@@ -13,6 +15,7 @@ import {
   AIProviderChatResult,
   AIProviderGenerateChatInput,
   AIProviderGenerateTextInput,
+  AIProviderImagePart,
   AIProviderResult,
 } from './ai-provider.interface';
 import {
@@ -85,9 +88,24 @@ export class GeminiProvider implements AIProvider {
     );
 
     try {
+      const geminiContents = this.toGeminiContents(input.messages, input.imageParts);
+      this.logger.log(
+        `[GeminiProvider] generateChat: messages=${input.messages.length} imageParts=${input.imageParts?.length ?? 0} contentsBlocks=${geminiContents.length}`,
+      );
+      // Log part counts per content block without leaking data
+      geminiContents.forEach((c, i) => {
+        const partSummary = (c.parts ?? []).map((p) => {
+          const pp = p as Record<string, unknown>;
+          if (pp['text']) return 'text';
+          if (pp['inlineData']) return `inlineData(${(pp['inlineData'] as Record<string, unknown>)['mimeType']})`;
+          if (pp['functionResponse']) return 'functionResponse';
+          return 'unknown';
+        });
+        this.logger.log(`[GeminiProvider] content[${i}] role=${c.role} parts=[${partSummary.join(', ')}]`);
+      });
       const response = await this.client.models.generateContent({
         model,
-        contents: this.toGeminiContents(input.messages),
+        contents: geminiContents,
         config: {
           systemInstruction: input.systemInstruction,
           tools: [{ functionDeclarations }],
@@ -117,8 +135,11 @@ export class GeminiProvider implements AIProvider {
     }
   }
 
-  toGeminiContents(messages: AIProviderChatMessage[]): Content[] {
-    return messages.map((message) => {
+  toGeminiContents(
+    messages: AIProviderChatMessage[],
+    imageParts?: AIProviderImagePart[],
+  ): Content[] {
+    const contents: Content[] = messages.map((message) => {
       if (message.role === 'tool') {
         return {
           role: 'user',
@@ -137,5 +158,34 @@ export class GeminiProvider implements AIProvider {
         parts: [createPartFromText(message.content)],
       };
     });
+
+    // Append inline image parts to the last user-role content block.
+    // This gives Gemini the actual image bytes alongside the user's text request.
+    if (imageParts && imageParts.length > 0) {
+      const inlineParts: Part[] = imageParts.map((img) =>
+        createPartFromBase64(img.base64, img.mimeType),
+      );
+
+      // Find the last user message to attach images to
+      let lastUserIndex = -1;
+      for (let i = contents.length - 1; i >= 0; i--) {
+        if (contents[i].role === 'user') {
+          lastUserIndex = i;
+          break;
+        }
+      }
+
+      if (lastUserIndex >= 0) {
+        contents[lastUserIndex] = {
+          ...contents[lastUserIndex],
+          parts: [...(contents[lastUserIndex].parts ?? []), ...inlineParts],
+        };
+      } else {
+        // No user message yet — create one containing only the images
+        contents.push({ role: 'user', parts: inlineParts });
+      }
+    }
+
+    return contents;
   }
 }

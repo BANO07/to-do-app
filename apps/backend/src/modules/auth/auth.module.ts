@@ -10,6 +10,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { GoogleAuthGuard } from './google-auth.guard';
 import { UsersModule } from '../users/users.module';
 import { CategoriesModule } from '../categories/categories.module';
+import { CalendarModule } from '../calendar/calendar.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { CategoriesModule } from '../categories/categories.module';
     }),
     UsersModule,
     CategoriesModule,
+    CalendarModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, AuthResolver, GoogleStrategy, JwtStrategy, GoogleAuthGuard],

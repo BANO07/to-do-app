@@ -2,6 +2,8 @@ import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { forkJoin, Subject, takeUntil } from 'rxjs';
+import { CalendarService } from '../../../core/services/calendar.service';
+import { CalendarConnectionStatus, CalendarEvent } from '../../../core/models/app.models';
 import { AuthService } from '../../../core/services/auth.service';
 import { TaskService } from '../../../core/services/task.service';
 import { DashboardSummary, Task, TaskStatus } from '../../../core/models/app.models';
@@ -78,6 +80,40 @@ import { COMPLETION_RATE_HELP, formatCompletionRate } from '../../../core/utils/
             <small>{{ completionRate.hint }}</small>
           </article>
         </div>
+
+        <!-- Calendar widget -->
+        <section class="panel panel--calendar">
+          <div class="panel__header">
+            <h2>🗓️ Today's Calendar</h2>
+            <a routerLink="/calendar">View calendar</a>
+          </div>
+          @if (!calendarConnection?.connected) {
+            <div class="calendar-cta">
+              <span>Connect Google Calendar to see events here</span>
+              <a routerLink="/calendar" class="btn-link">Connect →</a>
+            </div>
+          } @else if (todayEvents.length === 0) {
+            <p class="panel__empty">No events scheduled for today.</p>
+          } @else {
+            <div class="event-list">
+              @for (event of todayEvents; track event.id) {
+                <div class="event-item">
+                  <div class="event-item__time">
+                    @if (event.isAllDay) {
+                      <span>All day</span>
+                    } @else {
+                      <span>{{ formatEventTime(event.startAt) }}</span>
+                    }
+                  </div>
+                  <div class="event-item__title">{{ event.title }}</div>
+                  @if (event.location) {
+                    <div class="event-item__location">📍 {{ event.location }}</div>
+                  }
+                </div>
+              }
+            </div>
+          }
+        </section>
 
         <section class="panel">
           <div class="panel__header">
@@ -176,6 +212,54 @@ import { COMPLETION_RATE_HELP, formatCompletionRate } from '../../../core/utils/
         flex-direction: column;
         gap: 0.75rem;
       }
+      .calendar-cta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        padding: 0.5rem 0;
+      }
+      .btn-link {
+        color: var(--primary);
+        text-decoration: none;
+        font-weight: 500;
+      }
+      .panel__empty {
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        padding: 0.5rem 0;
+      }
+      .event-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .event-item {
+        display: flex;
+        align-items: baseline;
+        gap: 0.75rem;
+        padding: 0.5rem 0.75rem;
+        background: var(--surface-elevated);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        font-size: 0.875rem;
+      }
+      .event-item__time {
+        color: var(--primary);
+        font-weight: 600;
+        min-width: 60px;
+        flex-shrink: 0;
+        font-size: 0.75rem;
+      }
+      .event-item__title {
+        flex: 1;
+        font-weight: 500;
+      }
+      .event-item__location {
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+      }
       @media (max-width: 640px) {
         .dashboard__header {
           flex-direction: column;
@@ -191,11 +275,14 @@ export class DashboardPageComponent implements OnInit, OnDestroy {
   private readonly authService = inject(AuthService);
   private readonly taskService = inject(TaskService);
   private readonly toastService = inject(ToastService);
+  private readonly calendarService = inject(CalendarService);
   private readonly destroy$ = new Subject<void>();
   private loadingInFlight = false;
 
   summary: DashboardSummary | null = null;
   todayTasks: Task[] = [];
+  calendarConnection: CalendarConnectionStatus | null = null;
+  todayEvents: CalendarEvent[] = [];
   loading = true;
   readonly completionRateHelp = COMPLETION_RATE_HELP;
 
@@ -254,6 +341,30 @@ export class DashboardPageComponent implements OnInit, OnDestroy {
           this.loadingInFlight = false;
         },
       });
+
+    // Load calendar connection and today's events (non-blocking)
+    this.calendarService
+      .getConnection()
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (conn) => {
+          this.calendarConnection = conn;
+          if (conn.connected) {
+            this.calendarService
+              .getTodayEvents()
+              .pipe(takeUntil(this.destroy$))
+              .subscribe({ next: (events) => { this.todayEvents = events; } });
+          }
+        },
+      });
+  }
+
+  formatEventTime(isoStr: string): string {
+    return new Date(isoStr).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
   }
 
   onStatusChange(task: Task, status: TaskStatus): void {

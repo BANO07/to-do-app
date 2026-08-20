@@ -18,6 +18,7 @@ import { CategoriesModule } from './modules/categories/categories.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AiModule } from './modules/ai/ai.module';
+import { CalendarModule } from './modules/calendar/calendar.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -58,6 +59,7 @@ import { HealthController } from './health.controller';
     DashboardModule,
     NotificationsModule,
     AiModule,
+    CalendarModule,
   ],
   controllers: [HealthController],
   providers: [

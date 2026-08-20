@@ -143,10 +143,28 @@ PostgreSQL with TypeORM migrations (`synchronize: false`).
 - `ai_usage(user_id, usage_date)`
 - `ai_conversations(user_id, updated_at)`
 - `ai_messages(conversation_id, created_at)`, `ai_messages(user_id, created_at)`
+- `ai_attachments(conversation_id, created_at)`, `ai_attachments(user_id, created_at)`
+
+### ai_attachments (Phase H)
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `conversation_id` | uuid FK → ai_conversations | ON DELETE CASCADE |
+| `user_id` | uuid FK → users | ON DELETE CASCADE |
+| `original_filename` | varchar(512) | Sanitized display name |
+| `storage_key` | varchar(1024) UNIQUE | UUID-based; never the original filename |
+| `mime_type` | varchar(128) | Validated server-side |
+| `size_bytes` | bigint | |
+| `status` | enum | `UPLOADING`, `READY`, `FAILED`, `DELETED` |
+| `created_at` | timestamptz | |
+| `updated_at` | timestamptz | |
+
+Only `READY` attachments are passed to the AI as context.
 
 ## Migrations
 
-Do not edit `1723900000000-InitialSchema.ts`. Phase B lives in `1724000000000-AdvancedTasksFoundation.ts`. Phase C lives in `1724100000000-NotificationsPhaseC.ts`. Phase D lives in `1724200000000-AIFoundation.ts`. Phase E lives in `1724300000000-AIConversationsPhaseE.ts`.
+Do not edit `1723900000000-InitialSchema.ts`. Phase B lives in `1724000000000-AdvancedTasksFoundation.ts`. Phase C lives in `1724100000000-NotificationsPhaseC.ts`. Phase D lives in `1724200000000-AIFoundation.ts`. Phase E lives in `1724300000000-AIConversationsPhaseE.ts`. Phase H lives in `1724400000000-AiAttachmentsPhaseH.ts`.
 
 ```bash
 cd apps/backend

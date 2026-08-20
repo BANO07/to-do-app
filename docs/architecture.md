@@ -85,6 +85,40 @@ AiToolsService → TasksService / CategoriesService / DashboardService / Reminde
 - Phase F adds productivity intelligence tools (`planMyDay`, `getProductivityInsights`) and enriched task snapshots without new database tables.
 - Completion rate always comes from `DashboardService.getSummary`; the AI must not invent alternate formulas.
 
+## Attachment architecture (Phase H)
+
+```
+Frontend file picker
+    ↓
+FileReader API (browser, base64 encode)
+    ↓
+uploadAiAttachment GraphQL mutation (base64 payload)
+    ↓
+AiAttachmentResolver (@CurrentUser, GqlAuthGuard)
+    ↓
+AiAttachmentService (validate MIME, extension, size, ownership)
+    ↓
+AttachmentStorage.put() → local filesystem (outside public dir)
+    ↓
+ai_attachments row (READY status)
+
+When user sends aiChat:
+    ↓
+AiChatService.buildAttachmentContext()
+    ↓
+AttachmentContentExtractor.extract() → text / image metadata
+    ↓
+Injected into buildSystemInstruction() with prompt injection defense
+    ↓
+GeminiProvider.generateChat() with enriched system instruction
+```
+
+**Security notes:**
+- Storage keys are UUID-based; original filenames never used as paths.
+- Files stored in `AI_ATTACHMENT_STORAGE_DIR` (default: `.ai-attachments/`), not inside `dist/` or Angular assets.
+- Ownership: `@CurrentUser()` → verify `ai_conversations.user_id` → verify `ai_attachments.user_id`.
+- Prompt injection defense is embedded in the system instruction.
+
 ## Voice architecture (Phase G)
 
 ```

@@ -122,9 +122,11 @@ export class SidebarComponent {
     { label: 'Today', route: '/tasks/today', icon: '☀️' },
     { label: 'Upcoming', route: '/tasks/upcoming', icon: '📅' },
     { label: 'All Tasks', route: '/tasks/all', icon: '📋' },
+    { label: 'Kanban Board', route: '/tasks/kanban', icon: '📌' },
     { label: 'Completed', route: '/tasks/completed', icon: '✅' },
     { label: 'Archived', route: '/tasks/archived', icon: '📦' },
     { label: 'Categories', route: '/categories', icon: '🏷️' },
+    { label: 'Calendar', route: '/calendar', icon: '🗓️' },
     { label: 'AI Assistant', route: '/ai', icon: '✨' },
     { label: 'Settings', route: '/settings', icon: '⚙️' },
   ];

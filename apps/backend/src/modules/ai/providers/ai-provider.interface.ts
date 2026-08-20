@@ -25,10 +25,22 @@ export interface AIProviderToolCall {
   arguments: Record<string, unknown>;
 }
 
+/** An inline image to pass as a multimodal part alongside the user's message. */
+export interface AIProviderImagePart {
+  /** Base64-encoded image bytes (no data-URL prefix). */
+  base64: string;
+  /** MIME type, e.g. "image/png". */
+  mimeType: string;
+  /** Original filename for display/context purposes only. */
+  filename: string;
+}
+
 export interface AIProviderGenerateChatInput {
   systemInstruction: string;
   messages: AIProviderChatMessage[];
   tools: AIProviderToolDeclaration[];
+  /** Optional inline image parts to append to the most recent user message. */
+  imageParts?: AIProviderImagePart[];
 }
 
 export interface AIProviderChatResult {

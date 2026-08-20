@@ -563,3 +563,108 @@ export const CLEAR_AI_CONVERSATION_MUTATION = gql`
     }
   }
 `;
+
+export const AI_CONVERSATION_ATTACHMENTS_QUERY = gql`
+  query AiConversationAttachments($conversationId: ID!) {
+    aiConversationAttachments(conversationId: $conversationId) {
+      id
+      originalFilename
+      mimeType
+      sizeBytes
+      status
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const UPLOAD_AI_ATTACHMENT_MUTATION = gql`
+  mutation UploadAiAttachment($input: UploadAiAttachmentInput!) {
+    uploadAiAttachment(input: $input) {
+      id
+      originalFilename
+      mimeType
+      sizeBytes
+      status
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const DELETE_AI_ATTACHMENT_MUTATION = gql`
+  mutation DeleteAiAttachment($input: DeleteAiAttachmentInput!) {
+    deleteAiAttachment(input: $input)
+  }
+`;
+
+// ── Calendar operations ─────────────────────────────────────────────────────
+
+export const CALENDAR_CONNECTION_QUERY = gql`
+  query CalendarConnection {
+    calendarConnection {
+      connected
+      providerAccountId
+      connectedAt
+      lastSyncedAt
+    }
+  }
+`;
+
+export const CALENDAR_AUTH_URL_QUERY = gql`
+  query CalendarAuthUrl {
+    calendarAuthUrl
+  }
+`;
+
+export const CALENDAR_EVENTS_QUERY = gql`
+  query CalendarEvents($input: CalendarEventsInput!) {
+    calendarEvents(input: $input) {
+      id
+      title
+      description
+      startAt
+      endAt
+      isAllDay
+      timezone
+      location
+      status
+    }
+  }
+`;
+
+export const TODAY_CALENDAR_EVENTS_QUERY = gql`
+  query TodayCalendarEvents {
+    todayCalendarEvents {
+      id
+      title
+      startAt
+      endAt
+      isAllDay
+      status
+      location
+    }
+  }
+`;
+
+export const CONNECT_CALENDAR_MUTATION = gql`
+  mutation ConnectCalendar($input: ConnectCalendarInput!) {
+    connectCalendar(input: $input)
+  }
+`;
+
+export const DISCONNECT_CALENDAR_MUTATION = gql`
+  mutation DisconnectCalendar {
+    disconnectCalendar
+  }
+`;
+
+export const SYNC_CALENDAR_MUTATION = gql`
+  mutation SyncCalendar {
+    syncCalendar {
+      success
+      eventsUpserted
+      message
+    }
+  }
+`;

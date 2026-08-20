@@ -11,13 +11,22 @@ describe('AiProductivityService', () => {
     getSummary: jest.fn(),
   };
 
+  const calendarEventService = {
+    getEvents: jest.fn(),
+    getTodayEvents: jest.fn(),
+    getUpcomingEvents: jest.fn(),
+    countEventsInWeek: jest.fn().mockResolvedValue(0),
+  };
+
   let service: AiProductivityService;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    calendarEventService.countEventsInWeek.mockResolvedValue(0);
     service = new AiProductivityService(
       tasksService as any,
       dashboardService as any,
+      calendarEventService as any,
     );
   });
 

@@ -246,6 +246,17 @@ No build-time env vars required. `apps/frontend/vercel.json` rewrites `/api/:pat
 - Run migrations so `1724300000000-AIConversationsPhaseE.ts` is applied before using chat.
 - Angular uses the topbar ✨ button or `/ai` route; all AI traffic goes through `/api/graphql`.
 
+## Phase H File Attachments
+
+- Run migration `1724400000000-AiAttachmentsPhaseH.ts` before using attachments.
+- Configure environment variables (all optional — safe defaults are built-in):
+  - `AI_ATTACHMENT_MAX_SIZE_MB` (default 10) — maximum uploaded file size in MB.
+  - `AI_ATTACHMENT_MAX_TEXT_CHARS` (default 50 000) — max characters extracted from a document; content is truncated if exceeded.
+  - `AI_ATTACHMENT_STORAGE_DIR` — absolute path where attachment files are stored. Defaults to `.ai-attachments/` in the project root. **Must not be publicly served.**
+- On Render / production: set `AI_ATTACHMENT_STORAGE_DIR` to a persistent disk mount path (e.g. `/var/data/ai-attachments`). The local storage implementation is swappable for S3/GCS by implementing `AttachmentStorage` and binding `ATTACHMENT_STORAGE` in `ai.module.ts`.
+- Do NOT expose the attachment storage directory as a static file route. The backend serves attachment data only after ownership verification through the authenticated API.
+- Supported file types: PDF, DOCX, TXT, CSV, PNG, JPEG, WebP.
+
 Local production build test:
 
 ```bash
