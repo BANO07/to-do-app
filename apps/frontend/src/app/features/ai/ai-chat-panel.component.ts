@@ -310,7 +310,7 @@ const MAX_FILE_SIZE_MB = 10;
                 <button
                   type="button"
                   class="btn btn--primary"
-                  [disabled]="sending || confirming || !draft.trim() || !providerConfigured || draftTooLong"
+                  [disabled]="!canSend"
                   (click)="send()"
                 >
                   Send
@@ -745,6 +745,30 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
     return this.draft.trim().length > AI_MESSAGE_MAX_LENGTH;
   }
 
+  /** READY attachments currently shown in the composer. */
+  get readyAttachments(): AiAttachment[] {
+    return this.attachments.filter((a) => a.status === 'READY');
+  }
+
+  /**
+   * Send is allowed when there is text and/or at least one READY attachment.
+   * Empty text with no attachments is invalid.
+   */
+  get canSend(): boolean {
+    if (
+      this.sending ||
+      this.confirming ||
+      !this.providerConfigured ||
+      this.draftTooLong ||
+      this.uploading
+    ) {
+      return false;
+    }
+    const hasText = this.draft.trim().length > 0;
+    const hasAttachment = this.readyAttachments.length > 0;
+    return hasText || hasAttachment;
+  }
+
   get allowedFileTypes(): string {
     return ALLOWED_MIME_TYPES.join(',');
   }
@@ -1105,25 +1129,32 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
   }
 
   send(): void {
-    const message = this.draft.trim();
-    if (!message || this.sending || this.draftTooLong) {
+    if (!this.canSend) {
       return;
     }
+
+    const message = this.draft.trim();
+    const pendingAttachmentIds = this.readyAttachments.map((a) => a.id);
 
     if (!this.activeConversationId) {
-      this.startNewConversationAndSend(message);
+      // Attachments require an existing conversation (upload is blocked otherwise).
+      // Attachment-only send always has activeConversationId; text-only may create one.
+      this.startNewConversationAndSend(message, pendingAttachmentIds);
       return;
     }
 
-    this.dispatchMessage(this.activeConversationId, message);
+    this.dispatchMessage(this.activeConversationId, message, pendingAttachmentIds);
   }
 
-  private startNewConversationAndSend(message: string): void {
+  private startNewConversationAndSend(
+    message: string,
+    pendingAttachmentIds: string[] = [],
+  ): void {
     this.aiService.createConversation().subscribe({
       next: (conversation) => {
         this.conversations = [conversation, ...this.conversations];
         this.selectConversation(conversation.id);
-        this.dispatchMessage(conversation.id, message);
+        this.dispatchMessage(conversation.id, message, pendingAttachmentIds);
       },
       error: () => {
         this.errorMessage = 'Unable to create a conversation.';
@@ -1131,25 +1162,35 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
     });
   }
 
-  private dispatchMessage(conversationId: string, message: string): void {
+  private dispatchMessage(
+    conversationId: string,
+    message: string,
+    pendingAttachmentIds: string[] = [],
+  ): void {
     this.sending = true;
     this.errorMessage = '';
     this.voiceErrorMessage = '';
+    this.attachmentError = '';
     this.pendingConfirmation = null;
     this.latestToolCalls = [];
     this.voiceInput.cancel();
     this.voiceOutput.cancel();
     this.draft = '';
 
+    const optimisticContent =
+      message || this.buildAttachmentOnlyLabel(pendingAttachmentIds);
+
     const optimistic: AiMessage = {
       id: `local-${Date.now()}`,
       role: 'USER',
-      content: message,
+      content: optimisticContent,
       createdAt: new Date().toISOString(),
     };
     this.messages = [...this.messages, optimistic];
     this.scrollToBottom();
 
+    // Send empty string when attachment-only — backend accepts it when READY
+    // attachments exist on the conversation.
     this.aiService.sendMessage({ conversationId, message }).subscribe({
       next: (response) => {
         this.sending = false;
@@ -1162,6 +1203,7 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
         }
         this.latestToolCalls = response.toolCalls ?? [];
         this.pendingConfirmation = response.pendingConfirmation ?? null;
+        this.clearComposerAfterSuccessfulSend(pendingAttachmentIds);
         this.handleAssistantSpeech(response.pendingConfirmation, response.assistantMessage?.content);
         this.scrollToBottom();
       },
@@ -1173,8 +1215,52 @@ export class AiChatPanelComponent implements OnInit, OnDestroy {
           'Unable to send message.';
         this.messages = this.messages.filter((item) => item.id !== optimistic.id);
         this.draft = message;
+        // Keep pending attachments so the user can retry.
       },
     });
+  }
+
+  /**
+   * After a successful send: clear composer chips, soft-delete those attachments
+   * so they do not reappear, and reset the file input for re-selecting the same file.
+   */
+  private clearComposerAfterSuccessfulSend(pendingAttachmentIds: string[]): void {
+    if (pendingAttachmentIds.length === 0) {
+      this.resetFileInput();
+      return;
+    }
+
+    const idSet = new Set(pendingAttachmentIds);
+    this.attachments = this.attachments.filter((a) => !idSet.has(a.id));
+    this.attachmentError = '';
+    this.resetFileInput();
+
+    for (const id of pendingAttachmentIds) {
+      this.aiService.deleteAttachment({ id }).subscribe({
+        error: () => {
+          // Composer already cleared; ignore soft-delete failures.
+        },
+      });
+    }
+  }
+
+  private resetFileInput(): void {
+    if (this.fileInput?.nativeElement) {
+      this.fileInput.nativeElement.value = '';
+    }
+  }
+
+  private buildAttachmentOnlyLabel(pendingAttachmentIds: string[]): string {
+    const names = this.attachments
+      .filter((a) => pendingAttachmentIds.includes(a.id))
+      .map((a) => a.originalFilename);
+    if (names.length === 0) {
+      return '📎 Attachment';
+    }
+    if (names.length === 1) {
+      return `📎 ${names[0]}`;
+    }
+    return `📎 ${names.length} attachments`;
   }
 
   confirmPending(): void {

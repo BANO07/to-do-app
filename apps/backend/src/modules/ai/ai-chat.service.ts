@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { AIService } from './ai.service';
 import { AIUsageService } from './ai-usage.service';
@@ -105,17 +105,45 @@ export class AiChatService {
       userId,
     );
 
+    const trimmed = message.trim();
+    let readyAttachments: AiAttachment[] = [];
+    try {
+      readyAttachments =
+        await this.attachmentService.getReadyAttachmentsForConversation(
+          conversationId,
+          userId,
+        );
+    } catch {
+      readyAttachments = [];
+    }
+
+    // Allow attachment-only messages (empty text + READY attachments).
+    // Reject completely empty requests (no text and no attachments).
+    if (!trimmed && readyAttachments.length === 0) {
+      throw new BadRequestException(
+        'Message or attachment is required.',
+      );
+    }
+
+    // Persist a readable user bubble for attachment-only turns so history
+    // and providers always have a non-empty user message.
+    const userContent =
+      trimmed ||
+      (readyAttachments.length === 1
+        ? `Please analyze the attached file: ${readyAttachments[0].originalFilename}`
+        : `Please analyze the ${readyAttachments.length} attached files.`);
+
     await this.conversationService.addMessage({
       conversationId,
       userId,
       role: AiMessageRole.USER,
-      content: message.trim(),
+      content: userContent,
     });
 
     await this.conversationService.ensureConversationTitleFromFirstMessage(
       conversationId,
       userId,
-      message,
+      userContent,
     );
 
     if (!this.aiService.isProviderConfigured()) {

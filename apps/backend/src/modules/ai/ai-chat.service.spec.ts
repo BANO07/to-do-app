@@ -137,6 +137,72 @@ describe('AiChatService', () => {
     expect(aiUsageService.consumeDailyRequest).not.toHaveBeenCalled();
   });
 
+  it('rejects empty message when conversation has no READY attachments', async () => {
+    await expect(service.chat('user-1', 'conv-1', '   ', 'UTC')).rejects.toThrow(
+      'Message or attachment is required.',
+    );
+    expect(aiUsageService.consumeDailyRequest).not.toHaveBeenCalled();
+    expect(conversationService.addMessage).not.toHaveBeenCalled();
+  });
+
+  it('accepts attachment-only messages with empty text', async () => {
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        AiChatService,
+        { provide: AI_PROVIDER, useValue: aiProvider },
+        { provide: AIService, useValue: aiService },
+        { provide: AIUsageService, useValue: aiUsageService },
+        { provide: AIConversationService, useValue: conversationService },
+        { provide: AiConfirmationService, useValue: confirmationService },
+        { provide: AiToolsService, useValue: toolsService },
+        {
+          provide: AiAttachmentService,
+          useValue: {
+            getReadyAttachmentsForConversation: jest.fn().mockResolvedValue([
+              {
+                id: 'att-1',
+                mimeType: 'image/png',
+                originalFilename: 'photo.png',
+                sizeBytes: 100,
+                status: 'READY',
+              },
+            ]),
+            getAttachmentData: jest.fn().mockResolvedValue({
+              data: Buffer.from('img'),
+              mimeType: 'image/png',
+            }),
+          },
+        },
+        {
+          provide: AttachmentContentExtractor,
+          useValue: {
+            extract: jest.fn().mockResolvedValue({
+              text: '',
+              truncated: false,
+              isImage: true,
+              imageBase64: 'aW1n',
+              imageMimeType: 'image/png',
+            }),
+          },
+        },
+      ],
+    }).compile();
+
+    const svc = moduleRef.get(AiChatService);
+    aiProvider.generateChat.mockResolvedValue({ text: 'I see a photo.' });
+
+    const response = await svc.chat('user-1', 'conv-1', '', 'UTC');
+
+    expect(response.assistantMessage?.content).toBe('I see a photo.');
+    expect(conversationService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: AiMessageRole.USER,
+        content: 'Please analyze the attached file: photo.png',
+      }),
+    );
+    expect(aiUsageService.consumeDailyRequest).toHaveBeenCalledTimes(1);
+  });
+
   it('consumes usage once and saves assistant response', async () => {
     aiProvider.generateChat.mockResolvedValue({ text: 'Here are your tasks.' });
 

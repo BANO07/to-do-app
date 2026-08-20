@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { of, Subject } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import { AiChatPanelComponent } from './ai-chat-panel.component';
 import { AiService } from '../../core/services/ai.service';
 import { UiShortcutService } from '../../core/services/ui-shortcut.service';
@@ -10,6 +10,7 @@ import {
   VoiceInputSnapshot,
   VoiceInputState,
 } from './voice/voice.types';
+import { AiAttachment } from '../../core/models/app.models';
 
 describe('AiChatPanelComponent voice integration', () => {
   let fixture: ComponentFixture<AiChatPanelComponent>;
@@ -22,6 +23,18 @@ describe('AiChatPanelComponent voice integration', () => {
     enabled: boolean;
     supported: boolean;
   }>();
+
+  const readyAttachment = (overrides: Partial<AiAttachment> = {}): AiAttachment => ({
+    id: 'att-1',
+    conversationId: 'conv-1',
+    originalFilename: 'photo.png',
+    mimeType: 'image/png',
+    sizeBytes: 1024,
+    status: 'READY',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  });
 
   const aiService = {
     panelOpen$: panelOpenSubject.asObservable(),
@@ -83,7 +96,9 @@ describe('AiChatPanelComponent voice integration', () => {
     createConversation: jasmine.createSpy('createConversation'),
     listAttachments: jasmine.createSpy('listAttachments').and.returnValue(of([])),
     uploadAttachment: jasmine.createSpy('uploadAttachment'),
-    deleteAttachment: jasmine.createSpy('deleteAttachment'),
+    deleteAttachment: jasmine
+      .createSpy('deleteAttachment')
+      .and.returnValue(of(true)),
   };
 
   const voiceInput = {
@@ -124,6 +139,33 @@ describe('AiChatPanelComponent voice integration', () => {
   beforeEach(async () => {
     aiService.sendMessage.calls.reset();
     aiService.confirmAction.calls.reset();
+    aiService.deleteAttachment.calls.reset();
+    aiService.sendMessage.and.returnValue(
+      of({
+        conversation: {
+          id: 'conv-1',
+          title: 'Test',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        assistantMessage: {
+          id: 'msg-1',
+          role: 'ASSISTANT',
+          content: 'Here is your plan.',
+          createdAt: new Date().toISOString(),
+        },
+        toolCalls: [],
+        pendingConfirmation: null,
+        completed: true,
+        usage: {
+          dailyLimit: 20,
+          used: 2,
+          remaining: 18,
+          resetAt: new Date().toISOString(),
+          providerConfigured: true,
+        },
+      }),
+    );
     voiceOutput.speak.calls.reset();
 
     await TestBed.configureTestingModule({
@@ -153,6 +195,7 @@ describe('AiChatPanelComponent voice integration', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     aiService.sendMessage.calls.reset();
+    aiService.deleteAttachment.calls.reset();
     voiceOutput.speak.calls.reset();
   });
 
@@ -246,5 +289,112 @@ describe('AiChatPanelComponent voice integration', () => {
       toolName: 'deleteTask',
     };
     expect(component.isMicDisabled).toBeTrue();
+  });
+
+  describe('attachment composer send behavior', () => {
+    it('disables send when draft and attachments are empty', () => {
+      component.providerConfigured = true;
+      component.draft = '';
+      component.attachments = [];
+      expect(component.canSend).toBeFalse();
+    });
+
+    it('allows text-only send', () => {
+      component.providerConfigured = true;
+      component.activeConversationId = 'conv-1';
+      component.draft = 'Hello';
+      component.attachments = [];
+      expect(component.canSend).toBeTrue();
+
+      component.send();
+      expect(aiService.sendMessage).toHaveBeenCalledWith({
+        conversationId: 'conv-1',
+        message: 'Hello',
+      });
+      expect(component.draft).toBe('');
+    });
+
+    it('allows attachment-only send with empty text', () => {
+      component.providerConfigured = true;
+      component.activeConversationId = 'conv-1';
+      component.draft = '';
+      component.attachments = [readyAttachment()];
+      expect(component.canSend).toBeTrue();
+
+      component.send();
+      expect(aiService.sendMessage).toHaveBeenCalledWith({
+        conversationId: 'conv-1',
+        message: '',
+      });
+    });
+
+    it('allows text + attachment send and clears composer after success', () => {
+      component.providerConfigured = true;
+      component.activeConversationId = 'conv-1';
+      component.draft = 'Analyze this';
+      component.attachments = [readyAttachment()];
+
+      component.send();
+
+      expect(aiService.sendMessage).toHaveBeenCalledWith({
+        conversationId: 'conv-1',
+        message: 'Analyze this',
+      });
+      expect(component.draft).toBe('');
+      expect(component.attachments).toEqual([]);
+      expect(aiService.deleteAttachment).toHaveBeenCalledWith({ id: 'att-1' });
+    });
+
+    it('clears multiple attachments after successful attachment-only send', () => {
+      component.providerConfigured = true;
+      component.activeConversationId = 'conv-1';
+      component.draft = '';
+      component.attachments = [
+        readyAttachment({ id: 'att-1', originalFilename: 'a.png' }),
+        readyAttachment({
+          id: 'att-2',
+          originalFilename: 'notes.txt',
+          mimeType: 'text/plain',
+        }),
+      ];
+
+      component.send();
+
+      expect(component.attachments).toEqual([]);
+      expect(aiService.deleteAttachment).toHaveBeenCalledWith({ id: 'att-1' });
+      expect(aiService.deleteAttachment).toHaveBeenCalledWith({ id: 'att-2' });
+    });
+
+    it('keeps attachments when send fails so the user can retry', () => {
+      aiService.sendMessage.and.returnValue(
+        throwError(() => ({ message: 'Network error' })),
+      );
+      component.providerConfigured = true;
+      component.activeConversationId = 'conv-1';
+      component.draft = 'Analyze this';
+      component.attachments = [readyAttachment()];
+
+      component.send();
+
+      expect(component.attachments.length).toBe(1);
+      expect(component.attachments[0].id).toBe('att-1');
+      expect(component.draft).toBe('Analyze this');
+      expect(aiService.deleteAttachment).not.toHaveBeenCalled();
+      expect(component.errorMessage).toContain('Network error');
+    });
+
+    it('does not treat FAILED attachments as sendable without text', () => {
+      component.providerConfigured = true;
+      component.draft = '';
+      component.attachments = [readyAttachment({ status: 'FAILED' })];
+      expect(component.canSend).toBeFalse();
+    });
+
+    it('disables send while an upload is in progress', () => {
+      component.providerConfigured = true;
+      component.draft = 'Hello';
+      component.uploading = true;
+      expect(component.canSend).toBeFalse();
+    });
   });
 });

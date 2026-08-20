@@ -10,6 +10,7 @@ export class AiChatInput {
   @IsUUID()
   conversationId!: string;
 
+  /** May be empty when the conversation has READY attachments (attachment-only send). */
   @Field(() => String)
   @IsString()
   @MaxLength(4000)
