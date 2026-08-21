@@ -62,6 +62,15 @@ interface CalendarDay {
         <p class="connected-account">Connected as <strong>{{ connection!.providerAccountId }}</strong></p>
       }
 
+      @if (connection?.needsReconnect) {
+        <div class="alert alert--warning">
+          Your Google Calendar connection can read events but cannot create or update them from Todos.
+          <button type="button" class="btn btn--ghost btn--sm" (click)="onConnect()" [disabled]="connecting">
+            {{ connecting ? 'Redirecting…' : 'Reconnect to enable Todo sync' }}
+          </button>
+        </div>
+      }
+
       @if (loading) {
         <div class="loading-state">Loading calendar…</div>
       } @else {
@@ -167,6 +176,14 @@ interface CalendarDay {
     }
     .alert--success { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
     .alert--error { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    .alert--warning {
+      background: rgba(245, 158, 11, 0.15);
+      color: #b45309;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+    }
     .loading-state {
       text-align: center;
       padding: 3rem;
@@ -422,7 +439,11 @@ export class CalendarPageComponent implements OnInit, OnDestroy {
     this.subs.add(
       this.calendarService.disconnect().subscribe({
         next: () => {
-          this.connection = { connected: false };
+          this.connection = {
+            connected: false,
+            canWrite: false,
+            needsReconnect: false,
+          };
           this.events = [];
           this.buildCalendarDays([]);
           this.showStatus('Google Calendar disconnected.', 'success');

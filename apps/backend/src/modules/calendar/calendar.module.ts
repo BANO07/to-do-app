@@ -7,6 +7,7 @@ import { CalendarEventRepository } from './calendar-event.repository';
 import { CalendarConnectionService } from './calendar-connection.service';
 import { CalendarSyncService } from './calendar-sync.service';
 import { CalendarEventService } from './calendar-event.service';
+import { CalendarPushService } from './calendar-push.service';
 import { CalendarResolver } from './calendar.resolver';
 
 @Module({
@@ -17,8 +18,14 @@ import { CalendarResolver } from './calendar.resolver';
     CalendarConnectionService,
     CalendarSyncService,
     CalendarEventService,
+    CalendarPushService,
     CalendarResolver,
   ],
-  exports: [CalendarEventService, CalendarConnectionService, CalendarSyncService],
+  exports: [
+    CalendarEventService,
+    CalendarConnectionService,
+    CalendarSyncService,
+    CalendarPushService,
+  ],
 })
 export class CalendarModule {}

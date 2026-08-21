@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { QueryFailedError } from 'typeorm';
@@ -10,6 +11,8 @@ import { CategoriesService } from '../categories/categories.service';
 import { SubtasksRepository } from './subtasks.repository';
 import { RecurrenceRulesRepository } from './recurrence-rules.repository';
 import { RemindersService } from './reminders.service';
+import { CalendarPushService } from '../calendar/calendar-push.service';
+import { CalendarSyncService } from '../calendar/calendar-sync.service';
 import { Task } from './entities/task.entity';
 import { RecurrenceRule } from './entities/recurrence-rule.entity';
 import {
@@ -49,12 +52,16 @@ function isUniqueViolation(error: unknown): boolean {
 
 @Injectable()
 export class TasksService {
+  private readonly logger = new Logger(TasksService.name);
+
   constructor(
     private readonly tasksRepository: TasksRepository,
     private readonly categoriesService: CategoriesService,
     private readonly subtasksRepository: SubtasksRepository,
     private readonly recurrenceRulesRepository: RecurrenceRulesRepository,
     private readonly remindersService: RemindersService,
+    private readonly calendarPushService: CalendarPushService,
+    private readonly calendarSyncService: CalendarSyncService,
   ) {}
 
   async findAll(
@@ -126,7 +133,8 @@ export class TasksService {
 
     const saved = await this.tasksRepository.save(task);
     await this.createLinkedSubtasks(userId, saved.id, subtaskTitles);
-    const [enriched] = await this.withExtras(userId, [saved]);
+    const synced = await this.syncGoogleCalendarAfterCreate(userId, saved, tz);
+    const [enriched] = await this.withExtras(userId, [synced]);
     return enriched;
   }
 
@@ -179,7 +187,8 @@ export class TasksService {
       await this.generateNextOccurrence(userId, saved, tz);
     }
 
-    const [enriched] = await this.withExtras(userId, [saved]);
+    const synced = await this.syncGoogleCalendarAfterUpdate(userId, saved, tz);
+    const [enriched] = await this.withExtras(userId, [synced]);
     return enriched;
   }
 
@@ -254,6 +263,7 @@ export class TasksService {
     if (!task) {
       throw new NotFoundException('Task not found');
     }
+    await this.syncGoogleCalendarBeforeDelete(userId, task);
     await this.tasksRepository.remove(task);
     return true;
   }
@@ -344,7 +354,8 @@ export class TasksService {
         completedTask.id,
         saved,
       );
-      return saved;
+      // V1: each occurrence Task with a due date may get its own Google event.
+      return this.syncGoogleCalendarAfterCreate(userId, saved, tz);
     } catch (error) {
       if (isUniqueViolation(error)) {
         rule.lastGeneratedOccurrence = nextYmd;
@@ -357,6 +368,117 @@ export class TasksService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Best-effort Todo → Google Calendar push after create.
+   * Never throws — Todo persistence already succeeded.
+   */
+  private async syncGoogleCalendarAfterCreate(
+    userId: string,
+    task: Task,
+    timeZone: string,
+  ): Promise<Task> {
+    try {
+      if (!task.dueDate || task.googleEventId) {
+        return task;
+      }
+      const eventId = await this.calendarPushService.createEventForTask(
+        userId,
+        task,
+        timeZone,
+      );
+      if (!eventId) {
+        return task;
+      }
+      task.googleEventId = eventId;
+      const saved = await this.tasksRepository.save(task);
+      this.scheduleCalendarPull(userId);
+      return saved;
+    } catch (error) {
+      this.logger.warn(
+        `[Tasks] Google Calendar create sync failed taskId=${task.id}: ${error instanceof Error ? error.message : 'unknown'}`,
+      );
+      return task;
+    }
+  }
+
+  /**
+   * Best-effort Todo → Google Calendar push after update.
+   * - due date added → create
+   * - due date kept + linked → update
+   * - due date removed + linked → delete + clear id
+   */
+  private async syncGoogleCalendarAfterUpdate(
+    userId: string,
+    task: Task,
+    timeZone: string,
+  ): Promise<Task> {
+    try {
+      if (task.dueDate && task.googleEventId) {
+        await this.calendarPushService.updateEventForTask(userId, task, timeZone);
+        this.scheduleCalendarPull(userId);
+        return task;
+      }
+
+      if (task.dueDate && !task.googleEventId) {
+        const eventId = await this.calendarPushService.createEventForTask(
+          userId,
+          task,
+          timeZone,
+        );
+        if (eventId) {
+          task.googleEventId = eventId;
+          const saved = await this.tasksRepository.save(task);
+          this.scheduleCalendarPull(userId);
+          return saved;
+        }
+        return task;
+      }
+
+      if (!task.dueDate && task.googleEventId) {
+        const deleted = await this.calendarPushService.deleteEventForTask(
+          userId,
+          task,
+        );
+        if (deleted) {
+          task.googleEventId = null;
+          return this.tasksRepository.save(task);
+        }
+      }
+
+      return task;
+    } catch (error) {
+      this.logger.warn(
+        `[Tasks] Google Calendar update sync failed taskId=${task.id}: ${error instanceof Error ? error.message : 'unknown'}`,
+      );
+      return task;
+    }
+  }
+
+  private async syncGoogleCalendarBeforeDelete(
+    userId: string,
+    task: Task,
+  ): Promise<void> {
+    if (!task.googleEventId) {
+      return;
+    }
+    try {
+      await this.calendarPushService.deleteEventForTask(userId, task);
+    } catch (error) {
+      this.logger.warn(
+        `[Tasks] Google Calendar delete sync failed taskId=${task.id}: ${error instanceof Error ? error.message : 'unknown'}`,
+      );
+    }
+  }
+
+  /** Refresh calendar_events so the Calendar UI can show newly pushed events. */
+  private scheduleCalendarPull(userId: string): void {
+    void this.calendarSyncService.syncForUser(userId).catch((error) => {
+      this.logger.warn(
+        `[Tasks] Calendar pull after push failed userId=${userId}: ${error instanceof Error ? error.message : 'unknown'}`,
+      );
+    });
   }
 
   private async upsertRule(

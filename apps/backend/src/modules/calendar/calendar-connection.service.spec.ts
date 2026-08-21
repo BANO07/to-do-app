@@ -57,6 +57,8 @@ describe('CalendarConnectionService', () => {
       mockRepo.findByUserId.mockResolvedValue(null);
       const result = await service.getConnectionStatus('user-1');
       expect(result.connected).toBe(false);
+      expect(result.canWrite).toBe(false);
+      expect(result.needsReconnect).toBe(false);
     });
 
     it('should return connected=false when connection is REVOKED', async () => {
@@ -74,10 +76,29 @@ describe('CalendarConnectionService', () => {
         status: CalendarConnectionStatus.ACTIVE,
         providerAccountId: 'user@example.com',
         connectedAt: new Date(),
+        scopes: [
+          'https://www.googleapis.com/auth/calendar.events',
+          'https://www.googleapis.com/auth/userinfo.email',
+        ],
       });
       const result = await service.getConnectionStatus('user-1');
       expect(result.connected).toBe(true);
       expect(result.providerAccountId).toBe('user@example.com');
+      expect(result.canWrite).toBe(true);
+      expect(result.needsReconnect).toBe(false);
+    });
+
+    it('should flag needsReconnect when only readonly scope is granted', async () => {
+      mockRepo.findByUserId.mockResolvedValue({
+        status: CalendarConnectionStatus.ACTIVE,
+        providerAccountId: 'user@example.com',
+        connectedAt: new Date(),
+        scopes: ['https://www.googleapis.com/auth/calendar.readonly'],
+      });
+      const result = await service.getConnectionStatus('user-1');
+      expect(result.connected).toBe(true);
+      expect(result.canWrite).toBe(false);
+      expect(result.needsReconnect).toBe(true);
     });
   });
 
@@ -133,11 +154,12 @@ describe('CalendarConnectionService', () => {
   });
 
   describe('getAuthUrl', () => {
-    it('should return a Google OAuth URL', () => {
+    it('should return a Google OAuth URL with calendar.events write scope', () => {
       const url = service.getAuthUrl('test-state');
       expect(url).toContain('accounts.google.com');
       expect(url).toContain('test-state');
-      expect(url).toContain('calendar.readonly');
+      expect(url).toContain('calendar.events');
+      expect(url).not.toContain('calendar.readonly');
     });
   });
 });

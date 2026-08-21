@@ -53,6 +53,15 @@ export class Task {
   @Column({ name: 'due_date', type: 'timestamptz', nullable: true })
   dueDate?: Date | null;
 
+  /**
+   * Google Calendar event id created for this Todo (primary calendar).
+   * Null when not synced / no due date / calendar disconnected.
+   * V1 limitation: one Task row ↔ one Google event (including recurrence instances).
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ name: 'google_event_id', type: 'varchar', length: 512, nullable: true })
+  googleEventId?: string | null;
+
   @Field(() => Date, { nullable: true })
   @Column({ name: 'completed_at', type: 'timestamptz', nullable: true })
   completedAt?: Date | null;

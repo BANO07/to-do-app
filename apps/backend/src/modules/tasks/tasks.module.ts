@@ -15,11 +15,13 @@ import { TasksResolver } from './tasks.resolver';
 import { SubtasksResolver } from './subtasks.resolver';
 import { RemindersResolver } from './reminders.resolver';
 import { CategoriesModule } from '../categories/categories.module';
+import { CalendarModule } from '../calendar/calendar.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Task, Subtask, Reminder, RecurrenceRule]),
     CategoriesModule,
+    CalendarModule,
   ],
   providers: [
     TasksRepository,

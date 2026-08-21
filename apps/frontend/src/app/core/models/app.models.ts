@@ -136,6 +136,7 @@ export interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   dueDate?: string | null;
+  googleEventId?: string | null;
   completedAt?: string | null;
   seriesId?: string | null;
   occurrenceDate?: string | null;
@@ -392,6 +393,8 @@ export interface CalendarConnectionStatus {
   providerAccountId?: string | null;
   connectedAt?: string | null;
   lastSyncedAt?: string | null;
+  canWrite: boolean;
+  needsReconnect: boolean;
 }
 
 export interface CalendarEvent {

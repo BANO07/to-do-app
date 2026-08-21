@@ -7,6 +7,7 @@ const TASK_FIELDS = `
   status
   priority
   dueDate
+  googleEventId
   completedAt
   createdAt
   updatedAt
@@ -607,6 +608,8 @@ export const CALENDAR_CONNECTION_QUERY = gql`
       providerAccountId
       connectedAt
       lastSyncedAt
+      canWrite
+      needsReconnect
     }
   }
 `;

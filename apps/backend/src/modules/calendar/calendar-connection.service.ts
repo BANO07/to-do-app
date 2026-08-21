@@ -9,7 +9,11 @@ import { OAuth2Client } from 'google-auth-library';
 import { CalendarConnectionRepository } from './calendar-connection.repository';
 import { CalendarConnection } from './entities/calendar-connection.entity';
 import { CalendarConnectionStatus } from '../../common/enums/calendar-connection-status.enum';
-import { CalendarConnectionStatus as CalendarConnStatusDto, SyncCalendarResult } from './dto/calendar.dto';
+import { CalendarConnectionStatus as CalendarConnStatusDto } from './dto/calendar.dto';
+import {
+  GOOGLE_CALENDAR_OAUTH_SCOPES,
+  hasGoogleCalendarWriteScope,
+} from './google-calendar-scopes';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
@@ -40,16 +44,14 @@ export class CalendarConnectionService {
 
   /** Build the Google OAuth2 URL for calendar access */
   getAuthUrl(stateToken: string): string {
-    const scopes = [
-      'https://www.googleapis.com/auth/calendar.readonly',
-      'https://www.googleapis.com/auth/userinfo.email',
-    ];
+    const scopes = [...GOOGLE_CALENDAR_OAUTH_SCOPES];
     const client = this.createOAuth2Client();
     return client.generateAuthUrl({
       access_type: 'offline',
       scope: scopes,
       state: stateToken,
       prompt: 'consent',
+      include_granted_scopes: true,
     });
   }
 
@@ -142,12 +144,20 @@ export class CalendarConnectionService {
   async getConnectionStatus(userId: string): Promise<CalendarConnStatusDto> {
     const conn = await this.connectionRepo.findByUserId(userId);
     if (!conn || conn.status !== CalendarConnectionStatus.ACTIVE) {
-      return { connected: false };
+      return {
+        connected: false,
+        canWrite: false,
+        needsReconnect: false,
+      };
     }
+    const canWrite = hasGoogleCalendarWriteScope(conn.scopes);
     return {
       connected: true,
       providerAccountId: conn.providerAccountId ?? undefined,
       connectedAt: conn.connectedAt,
+      canWrite,
+      // Connected with an older readonly grant — user must re-consent for Todo sync.
+      needsReconnect: !canWrite,
     };
   }
 

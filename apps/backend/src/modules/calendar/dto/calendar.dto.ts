@@ -46,6 +46,17 @@ export class CalendarConnectionStatus {
 
   @Field({ nullable: true })
   lastSyncedAt?: Date;
+
+  /** True when the stored OAuth grant can create/update/delete events. */
+  @Field()
+  canWrite!: boolean;
+
+  /**
+   * True when connected but missing write scope (legacy calendar.readonly grant).
+   * Frontend should prompt the user to reconnect.
+   */
+  @Field()
+  needsReconnect!: boolean;
 }
 
 @ObjectType()
